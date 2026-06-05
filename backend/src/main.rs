@@ -6,7 +6,7 @@ use axum::{
     extract::{OriginalUri, Path, State},
     http::{HeaderMap, Method, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{any, delete, get, post},
+    routing::{any, delete, get},
 };
 use futures_util::TryStreamExt;
 use mongodb::{
