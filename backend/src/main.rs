@@ -1,4 +1,4 @@
-use std::{env, net::SocketAddr};
+use std::{env, net::SocketAddr, path::Path};
 
 use axum::{
     Json, Router,
@@ -17,7 +17,11 @@ use mongodb::{
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::{
+    cors::CorsLayer,
+    services::{ServeDir, ServeFile},
+    trace::TraceLayer,
+};
 use uuid::Uuid;
 
 const UPSTREAM_BASE_URL: &str = "https://pixel.yh-mo.xyz";
@@ -161,11 +165,17 @@ async fn main() {
         upstream_base_url: UPSTREAM_BASE_URL,
     };
 
+    let frontend_dir = frontend_dist_dir();
+    let frontend_index = format!("{frontend_dir}/index.html");
+    let frontend_assets =
+        ServeDir::new(&frontend_dir).not_found_service(ServeFile::new(frontend_index));
+
     let app = Router::new()
         .route("/api/admin/cdks", get(list_cdks).post(create_cdk))
         .route("/api/admin/cdks/{id}", delete(delete_cdk))
         .route("/api", any(proxy_api))
         .route("/api/{*path}", any(proxy_api))
+        .fallback_service(frontend_assets)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -175,6 +185,7 @@ async fn main() {
         .parse::<SocketAddr>()
         .expect("parse BIND_ADDR");
     println!("pixel-api listening on http://{addr}");
+    println!("serving frontend from: {frontend_dir}");
     println!("proxying user /api requests to Base URL: {UPSTREAM_BASE_URL}");
     println!("admin CDK mappings stored in MongoDB database: {mongo_database}");
 
@@ -182,6 +193,18 @@ async fn main() {
         .await
         .expect("bind API address");
     axum::serve(listener, app).await.expect("run API server");
+}
+
+fn frontend_dist_dir() -> String {
+    if let Ok(value) = env::var("FRONTEND_DIST_DIR") {
+        return value;
+    }
+
+    if Path::new("frontend/dist/index.html").exists() {
+        "frontend/dist".to_string()
+    } else {
+        "../frontend/dist".to_string()
+    }
 }
 
 async fn ensure_indexes(collection: &Collection<CdkMapping>) -> Result<(), mongodb::error::Error> {

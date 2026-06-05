@@ -16,18 +16,8 @@ permissions:
 
 jobs:
   docker:
-    name: Build Docker images
+    name: Build fused Docker image
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - service: backend
-            image: ghcr.io/chloemlla/gggggg-backend
-            dockerfile: backend/Dockerfile
-          - service: frontend
-            image: ghcr.io/chloemlla/gggggg-frontend
-            dockerfile: frontend/Dockerfile
 
     steps:
       - name: Checkout
@@ -48,7 +38,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ matrix.image }}
+          images: ghcr.io/chloemlla/gggggg
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
@@ -57,9 +47,9 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
+          file: Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          cache-from: type=gha,scope=fused
+          cache-to: type=gha,mode=max,scope=fused

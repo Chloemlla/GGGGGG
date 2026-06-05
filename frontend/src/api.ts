@@ -8,7 +8,20 @@ import type {
   VerifyCardResponse
 } from './types';
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? '';
+const API_BASE = resolveApiBase();
+
+function resolveApiBase() {
+  const configured = import.meta.env.VITE_API_BASE?.trim();
+  if (configured) {
+    return configured.replace(/\/$/, '');
+  }
+
+  if (typeof window !== 'undefined' && window.location.protocol !== 'file:') {
+    return window.location.origin;
+  }
+
+  return '';
+}
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {

@@ -9,4 +9,3 @@ frontend/.vite
 .env
 .env.*
 !.env.example
-Dockerfile

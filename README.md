@@ -59,6 +59,7 @@ npm run dev --prefix frontend
 ```
 
 The Vite dev server proxies `/api` to `http://127.0.0.1:8080`.
+For production, the Rust backend can serve `frontend/dist` directly. Set `FRONTEND_DIST_DIR` when the frontend build output is not at `frontend/dist`.
 
 Frontend routes:
 
@@ -79,24 +80,24 @@ The GitHub Actions workflow uploads:
 
 ## Docker Images
 
-The `Docker GHCR` workflow builds Docker images for GitHub Packages / GHCR:
+The `Docker GHCR` workflow builds one fused Docker image for GitHub Packages / GHCR:
 
-- `ghcr.io/chloemlla/gggggg-backend`
-- `ghcr.io/chloemlla/gggggg-frontend`
+- `ghcr.io/chloemlla/gggggg`
 
 Workflow behavior:
 
-- Pull requests build images without pushing.
+- Pull requests build the image without pushing.
 - Pushes to `main` and manual runs push `latest` and `sha-*` tags.
 
-Backend container variables:
+Container variables:
 
 ```powershell
 $env:BIND_ADDR='0.0.0.0:8080'
+$env:FRONTEND_DIST_DIR='/app/public'
 $env:MONGODB_URI='mongodb://mongo:27017'
 $env:MONGODB_DATABASE='pixel_remake'
 ```
 
-The frontend image serves static files through Nginx and proxies `/api/` to `http://backend:8080`.
+The container starts only the Rust backend. It serves the frontend static files and handles `/api/...` from the same origin, so the frontend API base is detected automatically from `window.location.origin`.
 
 No license file has been added yet because the repository owner has not selected a license.
