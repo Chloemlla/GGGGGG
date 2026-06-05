@@ -77,4 +77,26 @@ The GitHub Actions workflow uploads:
 - `frontend/dist`
 - `backend/target/release/pixel-api`
 
+## Docker Images
+
+The `Docker GHCR` workflow builds Docker images for GitHub Packages / GHCR:
+
+- `ghcr.io/chloemlla/gggggg-backend`
+- `ghcr.io/chloemlla/gggggg-frontend`
+
+Workflow behavior:
+
+- Pull requests build images without pushing.
+- Pushes to `main` and manual runs push `latest` and `sha-*` tags.
+
+Backend container variables:
+
+```powershell
+$env:BIND_ADDR='0.0.0.0:8080'
+$env:MONGODB_URI='mongodb://mongo:27017'
+$env:MONGODB_DATABASE='pixel_remake'
+```
+
+The frontend image serves static files through Nginx and proxies `/api/` to `http://backend:8080`.
+
 No license file has been added yet because the repository owner has not selected a license.

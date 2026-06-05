@@ -1,0 +1,12 @@
+.git
+.github
+backend/target
+frontend/dist
+frontend/node_modules
+frontend/.vite
+*.log
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+Dockerfile

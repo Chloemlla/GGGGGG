@@ -170,7 +170,10 @@ async fn main() {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+    let addr = env::var("BIND_ADDR")
+        .unwrap_or_else(|_| "0.0.0.0:8080".to_string())
+        .parse::<SocketAddr>()
+        .expect("parse BIND_ADDR");
     println!("pixel-api listening on http://{addr}");
     println!("proxying user /api requests to Base URL: {UPSTREAM_BASE_URL}");
     println!("admin CDK mappings stored in MongoDB database: {mongo_database}");
