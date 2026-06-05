@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import {
   Check,
   Copy,
@@ -1163,7 +1163,7 @@ function BackgroundParticles() {
   return (
     <div className="particles" aria-hidden="true">
       {Array.from({ length: 14 }).map((_, index) => (
-        <span key={index} style={{ '--i': index } as React.CSSProperties} />
+        <span key={index} style={{ '--i': index } as CSSProperties} />
       ))}
     </div>
   );

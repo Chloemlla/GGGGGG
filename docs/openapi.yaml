@@ -16,6 +16,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Settings"
+  /api/admin/cdks:
+    get:
+      summary: List local distribution CDK mappings
+      responses:
+        "200":
+          description: Distribution CDK mappings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminCdkList"
+    post:
+      summary: Create a local distribution CDK mapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAdminCdk"
+      responses:
+        "200":
+          description: Created mapping
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminCdk"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /api/admin/cdks/{id}:
+    delete:
+      summary: Delete a local distribution CDK mapping
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "404":
+          $ref: "#/components/responses/Error"
   /api/verify-card:
     post:
       summary: Verify a card key
@@ -148,6 +195,51 @@ components:
           type: boolean
         auto_bind_one_dollar_enabled:
           type: boolean
+    AdminCdkList:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminCdk"
+    AdminCdk:
+      type: object
+      required:
+        - id
+        - distribution_cdk
+        - upstream_cdk_masked
+        - enabled
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        distribution_cdk:
+          type: string
+        upstream_cdk_masked:
+          type: string
+        note:
+          type: string
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+        updated_at:
+          type: string
+    CreateAdminCdk:
+      type: object
+      required:
+        - upstream_cdk
+      properties:
+        distribution_cdk:
+          type: string
+          description: Optional. Generated automatically when omitted.
+        upstream_cdk:
+          type: string
+        note:
+          type: string
     CardRequest:
       type: object
       required:

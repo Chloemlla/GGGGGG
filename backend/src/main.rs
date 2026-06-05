@@ -1,22 +1,22 @@
 use std::{env, net::SocketAddr};
 
 use axum::{
+    Json, Router,
     body::Bytes,
     extract::{OriginalUri, Path, State},
     http::{HeaderMap, Method, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{any, delete, get, post},
-    Json, Router,
 };
 use futures_util::TryStreamExt;
 use mongodb::{
+    Client as MongoClient, Collection, IndexModel,
     bson::{doc, oid::ObjectId},
     options::IndexOptions,
-    Client as MongoClient, Collection, IndexModel,
 };
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use uuid::Uuid;
 
@@ -140,8 +140,10 @@ async fn main() {
         )
         .init();
 
-    let mongo_uri = env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
-    let mongo_database = env::var("MONGODB_DATABASE").unwrap_or_else(|_| "pixel_remake".to_string());
+    let mongo_uri =
+        env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
+    let mongo_database =
+        env::var("MONGODB_DATABASE").unwrap_or_else(|_| "pixel_remake".to_string());
     let mongo = MongoClient::with_uri_str(&mongo_uri)
         .await
         .expect("connect MongoDB");
@@ -149,7 +151,9 @@ async fn main() {
         .database(&mongo_database)
         .collection::<CdkMapping>("cdk_mappings");
 
-    ensure_indexes(&mappings).await.expect("create MongoDB indexes");
+    ensure_indexes(&mappings)
+        .await
+        .expect("create MongoDB indexes");
 
     let state = AppState {
         http: HttpClient::new(),
@@ -230,7 +234,10 @@ async fn create_cdk(
         id: None,
         distribution_cdk,
         upstream_cdk,
-        note: payload.note.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()),
+        note: payload
+            .note
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
         enabled: true,
         created_at: now.clone(),
         updated_at: now,
@@ -254,7 +261,8 @@ async fn delete_cdk(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<MessageResponse> {
-    let object_id = ObjectId::parse_str(&id).map_err(|_| ApiError::bad_request("CDK 映射 ID 无效"))?;
+    let object_id =
+        ObjectId::parse_str(&id).map_err(|_| ApiError::bad_request("CDK 映射 ID 无效"))?;
     let result = state
         .mappings
         .delete_one(doc! { "_id": object_id }, None)
@@ -330,11 +338,13 @@ async fn rewrite_card_key(state: &AppState, body: Bytes) -> Result<Vec<u8>, ApiE
     };
 
     let Some(card_key) = value.get("card_key").and_then(Value::as_str).map(str::trim) else {
-        return serde_json::to_vec(&value).map_err(|error| ApiError::bad_request(error.to_string()));
+        return serde_json::to_vec(&value)
+            .map_err(|error| ApiError::bad_request(error.to_string()));
     };
 
     if card_key.is_empty() {
-        return serde_json::to_vec(&value).map_err(|error| ApiError::bad_request(error.to_string()));
+        return serde_json::to_vec(&value)
+            .map_err(|error| ApiError::bad_request(error.to_string()));
     }
 
     if let Some(mapping) = state

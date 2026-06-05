@@ -7,7 +7,7 @@ This repository contains:
 - `docs/pixel-site-spec.md`: public-page feature inventory and API contract notes.
 - `docs/openapi.yaml`: OpenAPI draft for the observed API surface.
 - `frontend/`: React 19 + Vite frontend.
-- `backend/`: Rust Axum backend mock that implements the documented API shape.
+- `backend/`: Rust Axum backend that proxies upstream Pixel APIs and persists distribution CDK mappings in MongoDB.
 - `.github/workflows/build-artifacts.yml`: GitHub Actions workflow that builds and uploads frontend and backend artifacts.
 
 ## Local Development
@@ -17,6 +17,7 @@ Requirements:
 - Node.js 24+
 - npm 10+
 - Rust 1.89+
+- MongoDB 6+
 
 Install frontend dependencies:
 
@@ -30,11 +31,26 @@ Run the Rust API:
 cargo run --manifest-path backend/Cargo.toml
 ```
 
-The backend proxies every `/api/...` request to:
+Backend environment variables:
+
+```powershell
+$env:MONGODB_URI='mongodb://localhost:27017'
+$env:MONGODB_DATABASE='pixel_remake'
+```
+
+The backend proxies user `/api/...` requests to:
 
 ```text
 https://pixel.yh-mo.xyz
 ```
+
+Admin CDK endpoints are local backend endpoints:
+
+- `GET /api/admin/cdks`
+- `POST /api/admin/cdks`
+- `DELETE /api/admin/cdks/{id}`
+
+When a request body contains `card_key`, the backend checks MongoDB for a matching distribution CDK and forwards the corresponding upstream CDK to `https://pixel.yh-mo.xyz`.
 
 Run the frontend:
 
@@ -43,6 +59,11 @@ npm run dev --prefix frontend
 ```
 
 The Vite dev server proxies `/api` to `http://127.0.0.1:8080`.
+
+Frontend routes:
+
+- `/`: user task workspace.
+- `/admin`: distribution CDK management.
 
 ## Build
 
