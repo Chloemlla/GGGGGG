@@ -1,239 +1,75 @@
-use std::{
-    collections::HashMap,
-    net::SocketAddr,
-    sync::{Arc, RwLock},
-};
+use std::{env, net::SocketAddr};
 
 use axum::{
-    Json, Router,
-    extract::{Path, State},
-    http::StatusCode,
+    body::Bytes,
+    extract::{OriginalUri, Path, State},
+    http::{HeaderMap, Method, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{any, delete, get, post},
+    Json, Router,
 };
-use chrono::Local;
+use futures_util::TryStreamExt;
+use mongodb::{
+    bson::{doc, oid::ObjectId},
+    options::IndexOptions,
+    Client as MongoClient, Collection, IndexModel,
+};
+use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
-use tokio::time::{Duration, sleep};
+use serde_json::{json, Value};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use uuid::Uuid;
 
-const DEMO_CARD_KEY: &str = "demo-card-key";
+const UPSTREAM_BASE_URL: &str = "https://pixel.yh-mo.xyz";
 
 #[derive(Clone)]
 struct AppState {
-    cards: Arc<RwLock<HashMap<String, Card>>>,
-    tasks: Arc<RwLock<HashMap<String, Task>>>,
-    settings: Settings,
+    http: HttpClient,
+    mappings: Collection<CdkMapping>,
+    upstream_base_url: &'static str,
 }
 
-#[derive(Clone)]
-struct Card {
-    total_units: u32,
-    remaining_units: u32,
-}
-
-#[derive(Clone, Serialize)]
-struct Settings {
-    auto_bind_enabled: bool,
-    auto_bind_one_dollar_enabled: bool,
-}
-
-#[derive(Clone, Serialize)]
-struct Task {
-    task_id: String,
-    #[serde(skip_serializing)]
-    card_key: String,
-    #[serde(skip_serializing)]
-    service_type: ServiceType,
-    #[serde(skip_serializing)]
-    cost_units: u32,
-    status: TaskStatus,
-    total_accounts: usize,
-    accounts: Vec<TaskAccount>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CdkMapping {
+    #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
+    id: Option<ObjectId>,
+    distribution_cdk: String,
+    upstream_cdk: String,
+    note: Option<String>,
+    enabled: bool,
     created_at: String,
+    updated_at: String,
 }
 
-#[derive(Clone, Serialize)]
-struct TaskAccount {
-    id: u64,
-    line_number: usize,
-    email: String,
-    status: AccountStatus,
-    message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result_link: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    queue_position: Option<usize>,
+#[derive(Debug, Deserialize)]
+struct CreateCdkRequest {
+    distribution_cdk: Option<String>,
+    upstream_cdk: String,
+    note: Option<String>,
 }
 
-#[derive(Clone, Copy, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum ServiceType {
-    LinkOnly,
-    LinkAndBind,
-    #[serde(rename = "link_and_bind_1usd")]
-    LinkAndBind1usd,
+#[derive(Debug, Serialize)]
+struct CdkListResponse {
+    items: Vec<CdkMappingResponse>,
 }
 
-impl Default for ServiceType {
-    fn default() -> Self {
-        Self::LinkOnly
-    }
-}
-
-impl ServiceType {
-    fn cost_units(self) -> u32 {
-        match self {
-            Self::LinkOnly => 1,
-            Self::LinkAndBind => 2,
-            Self::LinkAndBind1usd => 3,
-        }
-    }
-
-    fn success_status(self) -> AccountStatus {
-        match self {
-            Self::LinkOnly => AccountStatus::Success,
-            Self::LinkAndBind | Self::LinkAndBind1usd => AccountStatus::BindSuccess,
-        }
-    }
-
-    fn success_message(self) -> &'static str {
-        match self {
-            Self::LinkOnly => "处理成功",
-            Self::LinkAndBind | Self::LinkAndBind1usd => "绑卡成功",
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum TaskStatus {
-    Pending,
-    Running,
-    Completed,
-    Failed,
-    Cancelled,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum AccountStatus {
-    Pending,
-    Running,
-    Success,
-    Failed,
-    BindPending,
-    Binding,
-    BindSuccess,
-    BindFailed,
-    Cancelled,
-}
-
-impl AccountStatus {
-    fn is_success(self) -> bool {
-        matches!(self, Self::Success | Self::BindSuccess)
-    }
-
-    fn is_failed(self) -> bool {
-        matches!(self, Self::Failed | Self::BindFailed)
-    }
-
-    fn is_done(self) -> bool {
-        matches!(
-            self,
-            Self::Success | Self::Failed | Self::BindSuccess | Self::BindFailed | Self::Cancelled
-        )
-    }
-
-    fn is_exportable(self) -> bool {
-        matches!(
-            self,
-            Self::Success
-                | Self::BindPending
-                | Self::Binding
-                | Self::BindSuccess
-                | Self::BindFailed
-        )
-    }
-}
-
-#[derive(Deserialize)]
-struct CardRequest {
-    card_key: String,
-}
-
-#[derive(Deserialize)]
-struct SubmitTaskRequest {
-    card_key: String,
-    accounts_text: String,
-    #[serde(default)]
-    service_type: ServiceType,
-}
-
-#[derive(Deserialize)]
-struct TasksByCardRequest {
-    card_key: String,
-    #[serde(default)]
-    account_query: String,
-}
-
-#[derive(Serialize)]
-struct VerifyCardResponse {
-    valid: bool,
-    remaining: Option<u32>,
-    total_count: Option<u32>,
-    remaining_quota: Option<String>,
-    total_quota: Option<String>,
-    remaining_quota_units: Option<u32>,
-    total_quota_units: Option<u32>,
-    message: String,
-}
-
-#[derive(Serialize)]
-struct SubmitTaskResponse {
-    task_id: String,
-    total_accounts: usize,
-    message: String,
-}
-
-#[derive(Serialize)]
-struct TasksByCardResponse {
-    tasks: Vec<TaskSummary>,
-    message: String,
-}
-
-#[derive(Serialize)]
-struct TaskSummary {
-    task_id: String,
-    total_accounts: usize,
-    status: TaskStatus,
-    success: usize,
-    failed: usize,
-    cancelled: usize,
-    done: usize,
+#[derive(Debug, Serialize)]
+struct CdkMappingResponse {
+    id: String,
+    distribution_cdk: String,
+    upstream_cdk_masked: String,
+    note: Option<String>,
+    enabled: bool,
     created_at: String,
+    updated_at: String,
 }
 
-#[derive(Serialize)]
-struct ExportByCardResponse {
-    accounts: Vec<ExportAccount>,
-    message: String,
-}
-
-#[derive(Serialize)]
-struct ExportAccount {
-    email: String,
-    result_link: String,
-    task_id: String,
-    line_number: usize,
-}
-
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct MessageResponse {
     message: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct ErrorResponse {
     detail: String,
 }
@@ -251,10 +87,33 @@ impl ApiError {
         }
     }
 
+    fn conflict(detail: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            detail: detail.into(),
+        }
+    }
+
     fn not_found(detail: impl Into<String>) -> Self {
         Self {
             status: StatusCode::NOT_FOUND,
             detail: detail.into(),
+        }
+    }
+
+    fn upstream(detail: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_GATEWAY,
+            detail: detail.into(),
+        }
+    }
+}
+
+impl From<mongodb::error::Error> for ApiError {
+    fn from(error: mongodb::error::Error) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            detail: format!("MongoDB error: {error}"),
         }
     }
 }
@@ -277,29 +136,40 @@ type ApiResult<T> = Result<Json<T>, ApiError>;
 async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
-            std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "pixel_api=debug,tower_http=debug".to_string()),
+            env::var("RUST_LOG").unwrap_or_else(|_| "pixel_api=debug,tower_http=debug".to_string()),
         )
         .init();
 
-    let state = AppState::demo();
+    let mongo_uri = env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
+    let mongo_database = env::var("MONGODB_DATABASE").unwrap_or_else(|_| "pixel_remake".to_string());
+    let mongo = MongoClient::with_uri_str(&mongo_uri)
+        .await
+        .expect("connect MongoDB");
+    let mappings = mongo
+        .database(&mongo_database)
+        .collection::<CdkMapping>("cdk_mappings");
+
+    ensure_indexes(&mappings).await.expect("create MongoDB indexes");
+
+    let state = AppState {
+        http: HttpClient::new(),
+        mappings,
+        upstream_base_url: UPSTREAM_BASE_URL,
+    };
+
     let app = Router::new()
-        .route("/api/settings", get(settings))
-        .route("/api/verify-card", post(verify_card))
-        .route("/api/submit-task", post(submit_task))
-        .route("/api/task/{task_id}", get(task_detail))
-        .route("/api/tasks-by-card", post(tasks_by_card))
-        .route("/api/tasks/export-by-card", post(export_by_card))
-        .route(
-            "/api/task/{task_id}/account/{account_id}/cancel-queue",
-            post(cancel_queue),
-        )
+        .route("/api/admin/cdks", get(list_cdks).post(create_cdk))
+        .route("/api/admin/cdks/{id}", delete(delete_cdk))
+        .route("/api", any(proxy_api))
+        .route("/api/{*path}", any(proxy_api))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
     println!("pixel-api listening on http://{addr}");
+    println!("proxying user /api requests to Base URL: {UPSTREAM_BASE_URL}");
+    println!("admin CDK mappings stored in MongoDB database: {mongo_database}");
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
@@ -307,424 +177,250 @@ async fn main() {
     axum::serve(listener, app).await.expect("run API server");
 }
 
-impl AppState {
-    fn demo() -> Self {
-        let mut cards = HashMap::new();
-        cards.insert(
-            DEMO_CARD_KEY.to_string(),
-            Card {
-                total_units: 20,
-                remaining_units: 20,
-            },
-        );
+async fn ensure_indexes(collection: &Collection<CdkMapping>) -> Result<(), mongodb::error::Error> {
+    let options = IndexOptions::builder().unique(true).build();
+    let index = IndexModel::builder()
+        .keys(doc! { "distribution_cdk": 1 })
+        .options(options)
+        .build();
+    collection.create_index(index, None).await?;
+    Ok(())
+}
 
-        Self {
-            cards: Arc::new(RwLock::new(cards)),
-            tasks: Arc::new(RwLock::new(HashMap::new())),
-            settings: Settings {
-                auto_bind_enabled: true,
-                auto_bind_one_dollar_enabled: false,
-            },
-        }
+async fn list_cdks(State(state): State<AppState>) -> ApiResult<CdkListResponse> {
+    let mut cursor = state.mappings.find(doc! {}, None).await?;
+    let mut items = Vec::new();
+
+    while let Some(mapping) = cursor.try_next().await? {
+        items.push(mapping_response(mapping));
     }
+
+    items.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+    Ok(Json(CdkListResponse { items }))
 }
 
-async fn settings(State(state): State<AppState>) -> Json<Settings> {
-    Json(state.settings)
-}
-
-async fn verify_card(
+async fn create_cdk(
     State(state): State<AppState>,
-    Json(payload): Json<CardRequest>,
-) -> Json<VerifyCardResponse> {
-    Json(card_response(&state, payload.card_key.trim()))
-}
-
-async fn submit_task(
-    State(state): State<AppState>,
-    Json(payload): Json<SubmitTaskRequest>,
-) -> ApiResult<SubmitTaskResponse> {
-    let card_key = payload.card_key.trim().to_string();
-    if card_key.is_empty() {
-        return Err(ApiError::bad_request("请输入卡密"));
+    Json(payload): Json<CreateCdkRequest>,
+) -> ApiResult<CdkMappingResponse> {
+    let upstream_cdk = payload.upstream_cdk.trim().to_string();
+    if upstream_cdk.is_empty() {
+        return Err(ApiError::bad_request("上游 CDK 不能为空"));
     }
 
-    let accounts = parse_accounts(&payload.accounts_text);
-    if accounts.is_empty() {
-        return Err(ApiError::bad_request("请输入账号信息"));
+    let distribution_cdk = payload
+        .distribution_cdk
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(generate_distribution_cdk);
+
+    let existing = state
+        .mappings
+        .find_one(doc! { "distribution_cdk": &distribution_cdk }, None)
+        .await?;
+
+    if existing.is_some() {
+        return Err(ApiError::conflict("分发 CDK 已存在"));
     }
 
-    let cost_units = payload.service_type.cost_units();
-    let required_units = cost_units * accounts.len() as u32;
-    {
-        let mut cards = state.cards.write().expect("cards lock");
-        let card = cards
-            .get_mut(&card_key)
-            .ok_or_else(|| ApiError::bad_request("卡密不存在"))?;
-        if card.remaining_units < required_units {
-            return Err(ApiError::bad_request("额度不足"));
-        }
-        card.remaining_units -= required_units;
-    }
-
-    let task_id = Uuid::new_v4().to_string();
-    let total_accounts = accounts.len();
-    let task_accounts = accounts
-        .into_iter()
-        .enumerate()
-        .map(|(index, (line_number, email))| TaskAccount {
-            id: (index + 1) as u64,
-            line_number,
-            email,
-            status: AccountStatus::Pending,
-            message: "排队中".to_string(),
-            result_link: None,
-            queue_position: Some(index + 1),
-        })
-        .collect::<Vec<_>>();
-
-    let task = Task {
-        task_id: task_id.clone(),
-        card_key,
-        service_type: payload.service_type,
-        cost_units,
-        status: TaskStatus::Running,
-        total_accounts,
-        accounts: task_accounts,
-        created_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+    let now = timestamp();
+    let mapping = CdkMapping {
+        id: None,
+        distribution_cdk,
+        upstream_cdk,
+        note: payload.note.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()),
+        enabled: true,
+        created_at: now.clone(),
+        updated_at: now,
     };
 
-    state
-        .tasks
-        .write()
-        .expect("tasks lock")
-        .insert(task_id.clone(), task);
+    let insert = state.mappings.insert_one(mapping, None).await?;
+    let id = insert
+        .inserted_id
+        .as_object_id()
+        .ok_or_else(|| ApiError::bad_request("MongoDB 未返回有效 ID"))?;
+    let created = state
+        .mappings
+        .find_one(doc! { "_id": id }, None)
+        .await?
+        .ok_or_else(|| ApiError::not_found("创建后未找到 CDK 映射"))?;
 
-    tokio::spawn(process_task(state.clone(), task_id.clone()));
-
-    Ok(Json(SubmitTaskResponse {
-        task_id,
-        total_accounts,
-        message: "任务提交成功".to_string(),
-    }))
+    Ok(Json(mapping_response(created)))
 }
 
-async fn task_detail(
+async fn delete_cdk(
     State(state): State<AppState>,
-    Path(task_id): Path<String>,
-) -> ApiResult<Task> {
-    let task = state
-        .tasks
-        .read()
-        .expect("tasks lock")
-        .get(&task_id)
-        .cloned()
-        .ok_or_else(|| ApiError::not_found("任务不存在"))?;
-
-    Ok(Json(task))
-}
-
-async fn tasks_by_card(
-    State(state): State<AppState>,
-    Json(payload): Json<TasksByCardRequest>,
-) -> ApiResult<TasksByCardResponse> {
-    ensure_card_exists(&state, &payload.card_key)?;
-    let query = payload.account_query.trim().to_lowercase();
-    let mut tasks = state
-        .tasks
-        .read()
-        .expect("tasks lock")
-        .values()
-        .filter(|task| task.card_key == payload.card_key.trim())
-        .filter(|task| task_matches_query(task, &query))
-        .map(task_summary)
-        .collect::<Vec<_>>();
-
-    tasks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-
-    Ok(Json(TasksByCardResponse {
-        tasks,
-        message: "查询成功".to_string(),
-    }))
-}
-
-async fn export_by_card(
-    State(state): State<AppState>,
-    Json(payload): Json<TasksByCardRequest>,
-) -> ApiResult<ExportByCardResponse> {
-    ensure_card_exists(&state, &payload.card_key)?;
-    let query = payload.account_query.trim().to_lowercase();
-    let tasks = state.tasks.read().expect("tasks lock");
-    let mut accounts = Vec::new();
-
-    for task in tasks
-        .values()
-        .filter(|task| task.card_key == payload.card_key.trim())
-    {
-        if !task_matches_query(task, &query) {
-            continue;
-        }
-        for account in &task.accounts {
-            if account.status.is_exportable() {
-                if let Some(result_link) = &account.result_link {
-                    accounts.push(ExportAccount {
-                        email: account.email.clone(),
-                        result_link: result_link.clone(),
-                        task_id: task.task_id.clone(),
-                        line_number: account.line_number,
-                    });
-                }
-            }
-        }
-    }
-
-    Ok(Json(ExportByCardResponse {
-        accounts,
-        message: "查询成功".to_string(),
-    }))
-}
-
-async fn cancel_queue(
-    State(state): State<AppState>,
-    Path((task_id, account_id)): Path<(String, u64)>,
+    Path(id): Path<String>,
 ) -> ApiResult<MessageResponse> {
-    let refund: (String, u32);
-    {
-        let mut tasks = state.tasks.write().expect("tasks lock");
-        let task = tasks
-            .get_mut(&task_id)
-            .ok_or_else(|| ApiError::not_found("任务不存在"))?;
-        let account = task
-            .accounts
-            .iter_mut()
-            .find(|account| account.id == account_id)
-            .ok_or_else(|| ApiError::not_found("账号不存在"))?;
+    let object_id = ObjectId::parse_str(&id).map_err(|_| ApiError::bad_request("CDK 映射 ID 无效"))?;
+    let result = state
+        .mappings
+        .delete_one(doc! { "_id": object_id }, None)
+        .await?;
 
-        if account.status != AccountStatus::Pending {
-            return Err(ApiError::bad_request("账号不在排队中"));
-        }
-
-        account.status = AccountStatus::Cancelled;
-        account.message = "已取消".to_string();
-        account.queue_position = None;
-        refund = (task.card_key.clone(), task.cost_units);
-
-        update_task_status(task);
-    }
-
-    if let Some(card) = state.cards.write().expect("cards lock").get_mut(&refund.0) {
-        card.remaining_units = (card.remaining_units + refund.1).min(card.total_units);
+    if result.deleted_count == 0 {
+        return Err(ApiError::not_found("CDK 映射不存在"));
     }
 
     Ok(Json(MessageResponse {
-        message: "已取消".to_string(),
+        message: "已删除".to_string(),
     }))
 }
 
-async fn process_task(state: AppState, task_id: String) {
-    sleep(Duration::from_secs(1)).await;
-    {
-        let mut tasks = state.tasks.write().expect("tasks lock");
-        if let Some(task) = tasks.get_mut(&task_id) {
-            for account in &mut task.accounts {
-                if account.status == AccountStatus::Pending {
-                    account.status = match task.service_type {
-                        ServiceType::LinkOnly => AccountStatus::Running,
-                        ServiceType::LinkAndBind | ServiceType::LinkAndBind1usd => {
-                            AccountStatus::BindPending
-                        }
-                    };
-                    account.message = match account.status {
-                        AccountStatus::BindPending => "待绑卡".to_string(),
-                        _ => "运行中".to_string(),
-                    };
-                    account.queue_position = None;
-                }
-            }
+async fn proxy_api(
+    State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
+    method: Method,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    match proxy_api_inner(state, uri, method, headers, body).await {
+        Ok(response) => response,
+        Err(error) => error.into_response(),
+    }
+}
+
+async fn proxy_api_inner(
+    state: AppState,
+    uri: axum::http::Uri,
+    method: Method,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    let upstream_url = format!(
+        "{}{}",
+        state.upstream_base_url.trim_end_matches('/'),
+        uri.path_and_query()
+            .map(|value| value.as_str())
+            .unwrap_or("/api")
+    );
+
+    let upstream_method = reqwest::Method::from_bytes(method.as_str().as_bytes())
+        .map_err(|error| ApiError::bad_request(format!("请求方法不支持: {error}")))?;
+    let outbound_body = rewrite_card_key(&state, body).await?;
+    let mut request = state.http.request(upstream_method, upstream_url);
+
+    for (name, value) in headers.iter() {
+        if is_hop_by_hop_header(name.as_str()) {
+            continue;
         }
+        request = request.header(name.as_str(), value.as_bytes());
     }
 
-    sleep(Duration::from_secs(1)).await;
-    {
-        let mut tasks = state.tasks.write().expect("tasks lock");
-        if let Some(task) = tasks.get_mut(&task_id) {
-            for account in &mut task.accounts {
-                if account.status == AccountStatus::BindPending {
-                    account.status = AccountStatus::Binding;
-                    account.message = "绑卡中".to_string();
-                }
-            }
-        }
+    if !outbound_body.is_empty() {
+        request = request.body(outbound_body);
     }
 
-    sleep(Duration::from_secs(2)).await;
-    let mut refunds: HashMap<String, u32> = HashMap::new();
-    {
-        let mut tasks = state.tasks.write().expect("tasks lock");
-        if let Some(task) = tasks.get_mut(&task_id) {
-            for account in &mut task.accounts {
-                if account.status == AccountStatus::Cancelled {
-                    continue;
-                }
-
-                if account.email.to_lowercase().contains("fail") {
-                    account.status = match task.service_type {
-                        ServiceType::LinkOnly => AccountStatus::Failed,
-                        ServiceType::LinkAndBind | ServiceType::LinkAndBind1usd => {
-                            AccountStatus::BindFailed
-                        }
-                    };
-                    account.message = "处理失败".to_string();
-                    *refunds.entry(task.card_key.clone()).or_insert(0) += task.cost_units;
-                } else {
-                    account.status = task.service_type.success_status();
-                    account.message = task.service_type.success_message().to_string();
-                    account.result_link = Some(format!(
-                        "https://example.com/link/{}/{}",
-                        &task.task_id[..8],
-                        account.id
-                    ));
-                }
-            }
-            update_task_status(task);
-        }
-    }
-
-    if !refunds.is_empty() {
-        let mut cards = state.cards.write().expect("cards lock");
-        for (card_key, units) in refunds {
-            if let Some(card) = cards.get_mut(&card_key) {
-                card.remaining_units = (card.remaining_units + units).min(card.total_units);
-            }
-        }
-    }
+    let response = request
+        .send()
+        .await
+        .map_err(|error| ApiError::upstream(format!("上游请求失败: {error}")))?;
+    upstream_response(response).await
 }
 
-fn parse_accounts(accounts_text: &str) -> Vec<(usize, String)> {
-    accounts_text
-        .lines()
-        .enumerate()
-        .filter_map(|(index, line)| {
-            let line = line.trim();
-            if line.is_empty() {
-                return None;
-            }
-            let email = line.split("----").next().unwrap_or("").trim();
-            Some((index + 1, email.to_string()))
-        })
-        .collect()
-}
-
-fn ensure_card_exists(state: &AppState, card_key: &str) -> Result<(), ApiError> {
-    let cards = state.cards.read().expect("cards lock");
-    if cards.contains_key(card_key.trim()) {
-        Ok(())
-    } else {
-        Err(ApiError::bad_request("卡密不存在"))
-    }
-}
-
-fn card_response(state: &AppState, card_key: &str) -> VerifyCardResponse {
-    let cards = state.cards.read().expect("cards lock");
-    if let Some(card) = cards.get(card_key) {
-        VerifyCardResponse {
-            valid: true,
-            remaining: Some(card.remaining_units),
-            total_count: Some(card.total_units),
-            remaining_quota: Some(format_quota(card.remaining_units)),
-            total_quota: Some(format_quota(card.total_units)),
-            remaining_quota_units: Some(card.remaining_units),
-            total_quota_units: Some(card.total_units),
-            message: "卡密有效".to_string(),
-        }
-    } else {
-        VerifyCardResponse {
-            valid: false,
-            remaining: None,
-            total_count: None,
-            remaining_quota: None,
-            total_quota: None,
-            remaining_quota_units: None,
-            total_quota_units: None,
-            message: "卡密不存在".to_string(),
-        }
-    }
-}
-
-fn format_quota(units: u32) -> String {
-    let whole = units / 2;
-    if units % 2 == 0 {
-        whole.to_string()
-    } else {
-        format!("{whole}.5")
-    }
-}
-
-fn task_matches_query(task: &Task, query: &str) -> bool {
-    if query.is_empty() {
-        return true;
+async fn rewrite_card_key(state: &AppState, body: Bytes) -> Result<Vec<u8>, ApiError> {
+    if body.is_empty() {
+        return Ok(Vec::new());
     }
 
-    task.accounts
-        .iter()
-        .any(|account| account.email.to_lowercase().contains(query))
-}
-
-fn task_summary(task: &Task) -> TaskSummary {
-    TaskSummary {
-        task_id: task.task_id.clone(),
-        total_accounts: task.total_accounts,
-        status: task.status,
-        success: task
-            .accounts
-            .iter()
-            .filter(|account| account.status.is_success())
-            .count(),
-        failed: task
-            .accounts
-            .iter()
-            .filter(|account| account.status.is_failed())
-            .count(),
-        cancelled: task
-            .accounts
-            .iter()
-            .filter(|account| account.status == AccountStatus::Cancelled)
-            .count(),
-        done: task
-            .accounts
-            .iter()
-            .filter(|account| account.status.is_done())
-            .count(),
-        created_at: task.created_at.clone(),
-    }
-}
-
-fn update_task_status(task: &mut Task) {
-    let done = task
-        .accounts
-        .iter()
-        .filter(|account| account.status.is_done())
-        .count();
-    let cancelled = task
-        .accounts
-        .iter()
-        .filter(|account| account.status == AccountStatus::Cancelled)
-        .count();
-    let failed = task
-        .accounts
-        .iter()
-        .filter(|account| account.status.is_failed())
-        .count();
-
-    task.status = if cancelled == task.total_accounts {
-        TaskStatus::Cancelled
-    } else if done == task.total_accounts && failed == task.total_accounts {
-        TaskStatus::Failed
-    } else if done == task.total_accounts {
-        TaskStatus::Completed
-    } else if done > 0 {
-        TaskStatus::Running
-    } else {
-        TaskStatus::Pending
+    let Ok(mut value) = serde_json::from_slice::<Value>(&body) else {
+        return Ok(body.to_vec());
     };
+
+    let Some(card_key) = value.get("card_key").and_then(Value::as_str).map(str::trim) else {
+        return serde_json::to_vec(&value).map_err(|error| ApiError::bad_request(error.to_string()));
+    };
+
+    if card_key.is_empty() {
+        return serde_json::to_vec(&value).map_err(|error| ApiError::bad_request(error.to_string()));
+    }
+
+    if let Some(mapping) = state
+        .mappings
+        .find_one(doc! { "distribution_cdk": card_key, "enabled": true }, None)
+        .await?
+    {
+        value["card_key"] = json!(mapping.upstream_cdk);
+    }
+
+    serde_json::to_vec(&value).map_err(|error| ApiError::bad_request(error.to_string()))
+}
+
+async fn upstream_response(response: reqwest::Response) -> Result<Response, ApiError> {
+    let status =
+        StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let mut headers = HeaderMap::new();
+
+    for (name, value) in response.headers().iter() {
+        if is_hop_by_hop_header(name.as_str()) {
+            continue;
+        }
+
+        if let (Ok(name), Ok(value)) = (
+            header::HeaderName::from_bytes(name.as_str().as_bytes()),
+            header::HeaderValue::from_bytes(value.as_bytes()),
+        ) {
+            headers.insert(name, value);
+        }
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| ApiError::upstream(format!("读取上游响应失败: {error}")))?;
+    Ok((status, headers, bytes).into_response())
+}
+
+fn mapping_response(mapping: CdkMapping) -> CdkMappingResponse {
+    CdkMappingResponse {
+        id: mapping.id.map(|id| id.to_hex()).unwrap_or_default(),
+        distribution_cdk: mapping.distribution_cdk,
+        upstream_cdk_masked: mask_cdk(&mapping.upstream_cdk),
+        note: mapping.note,
+        enabled: mapping.enabled,
+        created_at: mapping.created_at,
+        updated_at: mapping.updated_at,
+    }
+}
+
+fn generate_distribution_cdk() -> String {
+    format!("dist-{}", Uuid::new_v4().simple())
+}
+
+fn mask_cdk(value: &str) -> String {
+    let chars = value.chars().collect::<Vec<_>>();
+    if chars.len() <= 8 {
+        return "********".to_string();
+    }
+
+    let prefix = chars.iter().take(4).collect::<String>();
+    let suffix = chars.iter().rev().take(4).collect::<Vec<_>>();
+    let suffix = suffix.into_iter().rev().collect::<String>();
+    format!("{prefix}...{suffix}")
+}
+
+fn timestamp() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    now.to_string()
+}
+
+fn is_hop_by_hop_header(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "connection"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
+            | "host"
+            | "content-length"
+    )
 }

@@ -72,3 +72,13 @@ export interface ExportAccount {
   task_id?: string;
   line_number?: number;
 }
+
+export interface AdminCdkMapping {
+  id: string;
+  distribution_cdk: string;
+  upstream_cdk_masked: string;
+  note?: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}

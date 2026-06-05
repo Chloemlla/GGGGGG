@@ -30,6 +30,12 @@ Run the Rust API:
 cargo run --manifest-path backend/Cargo.toml
 ```
 
+The backend proxies every `/api/...` request to:
+
+```text
+https://pixel.yh-mo.xyz
+```
+
 Run the frontend:
 
 ```powershell
@@ -37,12 +43,6 @@ npm run dev --prefix frontend
 ```
 
 The Vite dev server proxies `/api` to `http://127.0.0.1:8080`.
-
-Demo card key:
-
-```text
-demo-card-key
-```
 
 ## Build
 

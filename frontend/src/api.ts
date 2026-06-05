@@ -1,4 +1,5 @@
 import type {
+  AdminCdkMapping,
   ExportAccount,
   ServiceType,
   Settings,
@@ -77,5 +78,26 @@ export function exportTasksByCard(cardKey: string, accountQuery = '') {
 export function cancelQueuedAccount(taskId: string, accountId: number) {
   return request<{ message: string }>(`/api/task/${taskId}/account/${accountId}/cancel-queue`, {
     method: 'POST'
+  });
+}
+
+export function listAdminCdks() {
+  return request<{ items: AdminCdkMapping[] }>('/api/admin/cdks');
+}
+
+export function createAdminCdk(payload: {
+  distribution_cdk?: string;
+  upstream_cdk: string;
+  note?: string;
+}) {
+  return request<AdminCdkMapping>('/api/admin/cdks', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteAdminCdk(id: string) {
+  return request<{ message: string }>(`/api/admin/cdks/${id}`, {
+    method: 'DELETE'
   });
 }

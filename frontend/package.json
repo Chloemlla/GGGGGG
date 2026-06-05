@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
-    "gggggg": "file:..",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
