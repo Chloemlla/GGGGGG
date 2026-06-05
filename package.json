@@ -1,0 +1,12 @@
+{
+  "name": "gggggg",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:backend": "cargo run --manifest-path backend/Cargo.toml",
+    "build:frontend": "npm run build --prefix frontend",
+    "build:backend": "cargo build --manifest-path backend/Cargo.toml --release",
+    "build": "npm run build:frontend && npm run build:backend"
+  }
+}

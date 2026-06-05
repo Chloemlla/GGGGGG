@@ -1,0 +1,368 @@
+openapi: 3.1.0
+info:
+  title: Pixel Discount Link API
+  version: 0.1.0
+  description: API contract reconstructed from the public Pixel self-service page.
+servers:
+  - url: https://pixel.yh-mo.xyz
+paths:
+  /api/settings:
+    get:
+      summary: Get frontend feature switches
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+  /api/verify-card:
+    post:
+      summary: Verify a card key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CardRequest"
+      responses:
+        "200":
+          description: Card verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyCardResponse"
+  /api/submit-task:
+    post:
+      summary: Submit an extraction task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitTaskRequest"
+      responses:
+        "200":
+          description: Task submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmitTaskResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/task/{task_id}:
+    get:
+      summary: Get task status and account details
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+        "404":
+          $ref: "#/components/responses/Error"
+  /api/tasks-by-card:
+    post:
+      summary: List tasks for a card key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TasksByCardRequest"
+      responses:
+        "200":
+          description: Task list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TasksByCardResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/tasks/export-by-card:
+    post:
+      summary: Export successful accounts for a card key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TasksByCardRequest"
+      responses:
+        "200":
+          description: Exportable successful accounts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportByCardResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/task/{task_id}/account/{account_id}/cancel-queue:
+    post:
+      summary: Cancel a pending account in a task queue
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Account cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+components:
+  responses:
+    Error:
+      description: API error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Settings:
+      type: object
+      required:
+        - auto_bind_enabled
+        - auto_bind_one_dollar_enabled
+      properties:
+        auto_bind_enabled:
+          type: boolean
+        auto_bind_one_dollar_enabled:
+          type: boolean
+    CardRequest:
+      type: object
+      required:
+        - card_key
+      properties:
+        card_key:
+          type: string
+    VerifyCardResponse:
+      type: object
+      required:
+        - valid
+        - message
+      properties:
+        valid:
+          type: boolean
+        remaining:
+          type:
+            - integer
+            - "null"
+        total_count:
+          type:
+            - integer
+            - "null"
+        remaining_quota:
+          type:
+            - string
+            - "null"
+        total_quota:
+          type:
+            - string
+            - "null"
+        remaining_quota_units:
+          type:
+            - integer
+            - "null"
+        total_quota_units:
+          type:
+            - integer
+            - "null"
+        message:
+          type: string
+    SubmitTaskRequest:
+      type: object
+      required:
+        - card_key
+        - accounts_text
+      properties:
+        card_key:
+          type: string
+        service_type:
+          type: string
+          enum:
+            - link_only
+            - link_and_bind
+            - link_and_bind_1usd
+          default: link_only
+        accounts_text:
+          type: string
+    SubmitTaskResponse:
+      type: object
+      required:
+        - task_id
+        - total_accounts
+        - message
+      properties:
+        task_id:
+          type: string
+        total_accounts:
+          type: integer
+        message:
+          type: string
+    TaskDetail:
+      type: object
+      required:
+        - task_id
+        - status
+        - total_accounts
+        - accounts
+      properties:
+        task_id:
+          type: string
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        total_accounts:
+          type: integer
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskAccount"
+    TaskAccount:
+      type: object
+      required:
+        - id
+        - line_number
+        - email
+        - status
+        - message
+      properties:
+        id:
+          type: integer
+        line_number:
+          type: integer
+        email:
+          type: string
+        status:
+          $ref: "#/components/schemas/AccountStatus"
+        message:
+          type: string
+        result_link:
+          type: string
+        queue_position:
+          type: integer
+    TaskStatus:
+      type: string
+      enum:
+        - pending
+        - running
+        - completed
+        - failed
+        - cancelled
+    AccountStatus:
+      type: string
+      enum:
+        - pending
+        - running
+        - success
+        - failed
+        - bind_pending
+        - binding
+        - bind_success
+        - bind_failed
+        - cancelled
+    TasksByCardRequest:
+      type: object
+      required:
+        - card_key
+      properties:
+        card_key:
+          type: string
+        account_query:
+          type: string
+          default: ""
+    TasksByCardResponse:
+      type: object
+      required:
+        - tasks
+        - message
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskSummary"
+        message:
+          type: string
+    TaskSummary:
+      type: object
+      required:
+        - task_id
+        - total_accounts
+        - status
+        - success
+        - failed
+        - created_at
+      properties:
+        task_id:
+          type: string
+        total_accounts:
+          type: integer
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        success:
+          type: integer
+        failed:
+          type: integer
+        cancelled:
+          type: integer
+        done:
+          type: integer
+        created_at:
+          type: string
+    ExportByCardResponse:
+      type: object
+      required:
+        - accounts
+        - message
+      properties:
+        accounts:
+          type: array
+          items:
+            type: object
+            required:
+              - email
+              - result_link
+            properties:
+              email:
+                type: string
+              result_link:
+                type: string
+              task_id:
+                type: string
+              line_number:
+                type: integer
+        message:
+          type: string
+    MessageResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+    Error:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
