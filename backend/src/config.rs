@@ -160,7 +160,7 @@ fn strip_wrapping_quotes(value: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_bind_addr, strip_wrapping_quotes};
+    use super::{OAuthConfig, normalize_bind_addr, strip_wrapping_quotes};
 
     #[test]
     fn strips_matching_wrapping_quotes() {
@@ -198,5 +198,43 @@ mod tests {
             normalize_bind_addr("https://0.0.0.0:8080/api"),
             "0.0.0.0:8080"
         );
+    }
+
+    #[test]
+    fn uses_explicit_oauth_redirect_uri_when_configured() {
+        let config = oauth_config(
+            "http://localhost:8080",
+            "https://gemini.chloemlla.com/api/admin/auth/callback",
+        );
+
+        assert_eq!(
+            config.redirect_uri(),
+            "https://gemini.chloemlla.com/api/admin/auth/callback"
+        );
+        assert!(config.cookie_secure());
+    }
+
+    #[test]
+    fn derives_oauth_redirect_uri_from_app_base_url() {
+        let config = oauth_config("https://gemini.chloemlla.com", "");
+
+        assert_eq!(
+            config.redirect_uri(),
+            "https://gemini.chloemlla.com/api/admin/auth/callback"
+        );
+        assert!(config.cookie_secure());
+    }
+
+    fn oauth_config(app_base_url: &str, redirect_uri_override: &str) -> OAuthConfig {
+        OAuthConfig {
+            app_base_url: app_base_url.to_string(),
+            base_url: "https://tts.chloemlla.com".to_string(),
+            client_id: "syn_client_test".to_string(),
+            client_secret: "syn_secret_test".to_string(),
+            redirect_uri_override: redirect_uri_override.to_string(),
+            scopes: "openid profile admin:identity".to_string(),
+            session_cookie_name: "synapse_admin_session".to_string(),
+            session_ttl_seconds: 2_592_000,
+        }
     }
 }
