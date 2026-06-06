@@ -1,4 +1,4 @@
-use std::{env, net::SocketAddr, path::Path as FsPath};
+use std::{env, path::Path as FsPath};
 
 use axum::{
     Json, Router,
@@ -178,17 +178,18 @@ async fn main() {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr = config_value("BIND_ADDR", "0.0.0.0:8080")
-        .parse::<SocketAddr>()
-        .expect("parse BIND_ADDR");
-    println!("pixel-api listening on http://{addr}");
+    let bind_addr = bind_addr();
     println!("serving frontend from: {frontend_dir}");
     println!("proxying user /api requests to Base URL: {UPSTREAM_BASE_URL}");
     println!("admin CDK mappings stored in MongoDB database: {mongo_database}");
 
-    let listener = tokio::net::TcpListener::bind(addr)
+    let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
-        .expect("bind API address");
+        .unwrap_or_else(|error| panic!("bind API address {bind_addr}: {error}"));
+    let addr = listener
+        .local_addr()
+        .unwrap_or_else(|error| panic!("read bound API address: {error}"));
+    println!("pixel-api listening on http://{addr}");
     axum::serve(listener, app).await.expect("run API server");
 }
 
@@ -208,6 +209,34 @@ fn config_value(name: &str, default: &str) -> String {
     env::var(name)
         .map(|value| strip_wrapping_quotes(value.trim()).to_string())
         .unwrap_or_else(|_| default.to_string())
+}
+
+fn bind_addr() -> String {
+    normalize_bind_addr(&config_value("BIND_ADDR", "0.0.0.0:8080"))
+}
+
+fn normalize_bind_addr(value: &str) -> String {
+    let without_scheme = value
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(value)
+        .trim();
+    let authority = without_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(without_scheme)
+        .trim();
+
+    if authority.starts_with(':') {
+        format!("0.0.0.0{authority}")
+    } else if authority
+        .chars()
+        .all(|character| character.is_ascii_digit())
+    {
+        format!("0.0.0.0:{authority}")
+    } else {
+        authority.to_string()
+    }
 }
 
 fn strip_wrapping_quotes(value: &str) -> &str {
@@ -478,7 +507,7 @@ fn is_hop_by_hop_header(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::strip_wrapping_quotes;
+    use super::{normalize_bind_addr, strip_wrapping_quotes};
 
     #[test]
     fn strips_matching_wrapping_quotes() {
@@ -501,6 +530,20 @@ mod tests {
         assert_eq!(
             strip_wrapping_quotes("'mongodb://localhost:27017"),
             "'mongodb://localhost:27017"
+        );
+    }
+
+    #[test]
+    fn normalizes_common_bind_addr_values() {
+        assert_eq!(normalize_bind_addr("8080"), "0.0.0.0:8080");
+        assert_eq!(normalize_bind_addr(":8080"), "0.0.0.0:8080");
+        assert_eq!(
+            normalize_bind_addr("http://localhost:8080/"),
+            "localhost:8080"
+        );
+        assert_eq!(
+            normalize_bind_addr("https://0.0.0.0:8080/api"),
+            "0.0.0.0:8080"
         );
     }
 }
