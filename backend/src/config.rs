@@ -32,6 +32,7 @@ pub struct OAuthConfig {
     pub base_url: String,
     pub client_id: String,
     pub client_secret: String,
+    pub redirect_uri_override: String,
     pub scopes: String,
     pub session_cookie_name: String,
     pub session_ttl_seconds: i64,
@@ -44,6 +45,7 @@ impl OAuthConfig {
             base_url: config_value("SYNAPSE_OAUTH_BASE_URL", DEFAULT_SYNAPSE_OAUTH_BASE_URL),
             client_id: config_value("SYNAPSE_OAUTH_CLIENT_ID", ""),
             client_secret: config_value("SYNAPSE_OAUTH_CLIENT_SECRET", ""),
+            redirect_uri_override: config_value("SYNAPSE_OAUTH_REDIRECT_URI", ""),
             scopes: config_value(
                 "SYNAPSE_OAUTH_SCOPES",
                 "openid profile email admin:identity",
@@ -58,7 +60,7 @@ impl OAuthConfig {
     }
 
     pub fn cookie_secure(&self) -> bool {
-        self.app_base_url
+        self.redirect_uri()
             .trim_start()
             .to_ascii_lowercase()
             .starts_with("https://")
@@ -69,6 +71,10 @@ impl OAuthConfig {
     }
 
     pub fn redirect_uri(&self) -> String {
+        if !self.redirect_uri_override.is_empty() {
+            return self.redirect_uri_override.clone();
+        }
+
         format!(
             "{}/api/admin/auth/callback",
             self.app_base_url.trim_end_matches('/')

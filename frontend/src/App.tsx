@@ -931,7 +931,7 @@ function AdminPage() {
           <PanelTitle
             icon={<Shield size={18} />}
             title="Synapse OAuth 未配置"
-            description="请配置 SYNAPSE_OAUTH_CLIENT_ID、SYNAPSE_OAUTH_CLIENT_SECRET 和 APP_BASE_URL。"
+            description="请配置 SYNAPSE_OAUTH_CLIENT_ID、SYNAPSE_OAUTH_CLIENT_SECRET，以及 APP_BASE_URL 或 SYNAPSE_OAUTH_REDIRECT_URI。"
           />
         </section>
       ) : !authStatus.authenticated ? (
