@@ -178,7 +178,9 @@ impl SynapseAdminUser {
     }
 
     fn is_trusted_identity(&self) -> bool {
-        self.has_role("trusted") || self.is_trusted == Some(true) || self.is_trusted_snake == Some(true)
+        self.has_role("trusted")
+            || self.is_trusted == Some(true)
+            || self.is_trusted_snake == Some(true)
     }
 
     fn has_role(&self, expected: &str) -> bool {
