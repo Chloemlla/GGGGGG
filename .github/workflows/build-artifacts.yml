@@ -10,6 +10,10 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build:
     name: Build frontend and backend
@@ -53,3 +57,108 @@ jobs:
           name: backend-linux-x86_64
           path: backend/target/release/pixel-api
           if-no-files-found: error
+
+  publish-image:
+    name: Publish Docker image
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_image: ${{ steps.image.outputs.deploy_image }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: image
+        shell: bash
+        run: |
+          repo="${GITHUB_REPOSITORY,,}"
+          ref_tag="$(echo "${GITHUB_REF_NAME}" | tr '[:upper:]/' '[:lower:]-' | sed -E 's/[^a-z0-9_.-]+/-/g; s/^-+|-+$//g')"
+          short_sha="$(git rev-parse --short HEAD)"
+          image="ghcr.io/${repo}"
+
+          {
+            echo "deploy_image=${image}:sha-${short_sha}"
+            echo "tags<<EOF"
+            echo "${image}:${ref_tag}"
+            echo "${image}:sha-${short_sha}"
+            if [ "${GITHUB_REF_NAME}" = "main" ]; then
+              echo "${image}:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+          cache-from: type=gha,scope=build-artifacts
+          cache-to: type=gha,mode=max,scope=build-artifacts
+
+  deploy-image:
+    name: Deploy GHCR image
+    needs: publish-image
+    if: github.event_name != 'pull_request' && needs['publish-image'].result == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Check deployment configuration
+        id: deploy_config
+        env:
+          SERVER_ADDRESS: ${{ secrets.SERVER_ADDRESS }}
+          USERNAME: ${{ secrets.USERNAME }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          CONTAINER_NAMES: ${{ secrets.CONTAINER_NAMES }}
+        run: |
+          if [ -n "$SERVER_ADDRESS" ] && [ -n "$USERNAME" ] && [ -n "$PRIVATE_KEY" ] && [ -n "$CONTAINER_NAMES" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Remote deployment skipped: SERVER_ADDRESS, USERNAME, PRIVATE_KEY, or CONTAINER_NAMES is not configured."
+          fi
+
+      - name: Install deployment dependencies
+        if: steps.deploy_config.outputs.enabled == 'true'
+        run: npm install --no-save --no-package-lock ssh2 dotenv axios form-data
+
+      - name: Download deployment script
+        if: steps.deploy_config.outputs.enabled == 'true'
+        run: |
+          mkdir -p scripts
+          curl -fsSL https://raw.githubusercontent.com/Chloemlla/Happy-TTS/refs/heads/main/scripts/deploy_image.js -o scripts/deploy_image.js
+          chmod +x scripts/deploy_image.js
+
+      - name: Run deployment script
+        if: steps.deploy_config.outputs.enabled == 'true'
+        env:
+          SERVER_ADDRESS: ${{ secrets.SERVER_ADDRESS }}
+          USERNAME: ${{ secrets.USERNAME }}
+          PORT: ${{ secrets.PORT }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          CONTAINER_NAMES: ${{ secrets.CONTAINER_NAMES }}
+          IMAGE_URL: ${{ needs['publish-image'].outputs.deploy_image }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: node scripts/deploy_image.js
