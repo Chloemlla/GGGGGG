@@ -1,6 +1,6 @@
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
     routing::{delete, get},
 };
@@ -8,13 +8,16 @@ use futures_util::TryStreamExt;
 use mongodb::{
     Collection, IndexModel,
     bson::{doc, oid::ObjectId},
-    options::IndexOptions,
+    options::{FindOptions, IndexOptions},
 };
 use uuid::Uuid;
 
 use crate::{
     error::{ApiError, ApiResult},
-    models::{CdkListResponse, CdkMapping, CdkMappingResponse, CreateCdkRequest, MessageResponse},
+    models::{
+        CdkListResponse, CdkMapping, CdkMappingResponse, CdkUsageListResponse, CdkUsageLog,
+        CdkUsageLogResponse, CdkUsageQuery, CreateCdkRequest, MessageResponse,
+    },
     oauth,
     state::AppState,
 };
@@ -23,17 +26,34 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/cdks", get(list_cdks).post(create_cdk))
         .route("/cdks/{id}", delete(delete_cdk))
+        .route("/cdk-usage", get(list_cdk_usage))
+        .route("/cdk-usage/{id}", get(get_cdk_usage))
 }
 
 pub async fn ensure_indexes(
-    collection: &Collection<CdkMapping>,
+    mappings: &Collection<CdkMapping>,
+    usage_logs: &Collection<CdkUsageLog>,
 ) -> Result<(), mongodb::error::Error> {
     let options = IndexOptions::builder().unique(true).build();
     let index = IndexModel::builder()
         .keys(doc! { "distribution_cdk": 1 })
         .options(options)
         .build();
-    collection.create_index(index, None).await?;
+    mappings.create_index(index, None).await?;
+
+    let usage_created_index = IndexModel::builder()
+        .keys(doc! { "created_at": -1 })
+        .build();
+    usage_logs.create_index(usage_created_index, None).await?;
+
+    let usage_cdk_index = IndexModel::builder()
+        .keys(doc! { "distribution_cdk": 1, "created_at": -1 })
+        .build();
+    usage_logs.create_index(usage_cdk_index, None).await?;
+
+    let usage_request_index = IndexModel::builder().keys(doc! { "request_id": 1 }).build();
+    usage_logs.create_index(usage_request_index, None).await?;
+
     Ok(())
 }
 
@@ -134,6 +154,56 @@ async fn delete_cdk(
     }))
 }
 
+async fn list_cdk_usage(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<CdkUsageQuery>,
+) -> ApiResult<CdkUsageListResponse> {
+    oauth::require_admin(&state, &headers).await?;
+
+    let mut filter = doc! {};
+    if let Some(distribution_cdk) = query
+        .distribution_cdk
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        filter.insert("distribution_cdk", distribution_cdk);
+    }
+
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    let options = FindOptions::builder()
+        .sort(doc! { "created_at": -1 })
+        .limit(limit)
+        .build();
+    let mut cursor = state.usage_logs.find(filter, options).await?;
+    let mut items = Vec::new();
+
+    while let Some(log) = cursor.try_next().await? {
+        items.push(usage_log_response(log));
+    }
+
+    Ok(Json(CdkUsageListResponse { items }))
+}
+
+async fn get_cdk_usage(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<CdkUsageLogResponse> {
+    oauth::require_admin(&state, &headers).await?;
+
+    let object_id =
+        ObjectId::parse_str(&id).map_err(|_| ApiError::bad_request("CDK 使用记录 ID 无效"))?;
+    let log = state
+        .usage_logs
+        .find_one(doc! { "_id": object_id }, None)
+        .await?
+        .ok_or_else(|| ApiError::not_found("CDK 使用记录不存在"))?;
+
+    Ok(Json(usage_log_response(log)))
+}
+
 fn mapping_response(mapping: CdkMapping) -> CdkMappingResponse {
     CdkMappingResponse {
         id: mapping.id.map(|id| id.to_hex()).unwrap_or_default(),
@@ -143,6 +213,37 @@ fn mapping_response(mapping: CdkMapping) -> CdkMappingResponse {
         enabled: mapping.enabled,
         created_at: mapping.created_at,
         updated_at: mapping.updated_at,
+    }
+}
+
+fn usage_log_response(log: CdkUsageLog) -> CdkUsageLogResponse {
+    CdkUsageLogResponse {
+        id: log.id.map(|id| id.to_hex()).unwrap_or_default(),
+        request_id: log.request_id,
+        distribution_cdk: log.distribution_cdk,
+        requested_cdk_masked: log.requested_cdk_masked,
+        mapping_id: log.mapping_id.map(|id| id.to_hex()),
+        cdk_note: log.cdk_note,
+        matched_mapping: log.matched_mapping,
+        request_method: log.request_method,
+        request_path: log.request_path,
+        request_query: log.request_query,
+        client_ip: log.client_ip,
+        forwarded_for: log.forwarded_for,
+        user_agent: log.user_agent,
+        referer: log.referer,
+        origin: log.origin,
+        accept_language: log.accept_language,
+        service_type: log.service_type,
+        account_count: log.account_count,
+        request_body_bytes: log.request_body_bytes,
+        request_summary: log.request_summary,
+        response_status: log.response_status,
+        response_body_bytes: log.response_body_bytes,
+        response_summary: log.response_summary,
+        error: log.error,
+        duration_ms: log.duration_ms,
+        created_at: log.created_at,
     }
 }
 

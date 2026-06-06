@@ -12,10 +12,12 @@ import {
   Database,
   Download,
   Eye,
+  FileSearch,
   Home,
   KeyRound,
   LogIn,
   LogOut,
+  Monitor,
   Plus,
   RefreshCcw,
   Search,
@@ -32,10 +34,12 @@ import {
   deleteAdminCdk,
   exportTasksByCard,
   getAdminAuthStatus,
+  getAdminCdkUsage,
   getSettings,
   getTask,
   getTasksByCard,
   isAuthError,
+  listAdminCdkUsage,
   listAdminCdks,
   logoutAdmin,
   submitTask,
@@ -47,6 +51,7 @@ import type {
   AdminCdkMapping,
   AlertType,
   CardInfo,
+  CdkUsageLog,
   ServiceType,
   Settings,
   TaskAccount,
@@ -907,6 +912,18 @@ function AdminPage() {
   const [deletingId, setDeletingId] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
   const [alert, setAlert] = useState({ type: "" as AlertType, msg: "" });
+  const [usageLogs, setUsageLogs] = useState<CdkUsageLog[]>([]);
+  const [usageFilter, setUsageFilter] = useState("");
+  const [usageLimit, setUsageLimit] = useState(50);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageAlert, setUsageAlert] = useState({
+    type: "" as AlertType,
+    msg: "",
+  });
+  const [activeUsageLog, setActiveUsageLog] = useState<CdkUsageLog | null>(
+    null,
+  );
+  const [usageDetailLoading, setUsageDetailLoading] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -933,14 +950,16 @@ function AdminPage() {
       if (response.authenticated) {
         setAuthAlert({ type: "", msg: "" });
         if (loadData) {
-          await loadCdks();
+          await loadAdminData();
         }
       } else {
         setItems([]);
+        setUsageLogs([]);
       }
     } catch (error) {
       setAuthStatus(null);
       setItems([]);
+      setUsageLogs([]);
       setAuthAlert({ type: "error", msg: getErrorMessage(error) });
     } finally {
       setAuthLoading(false);
@@ -959,11 +978,33 @@ function AdminPage() {
     }
   }
 
+  async function loadAdminData() {
+    await Promise.all([loadCdks(), loadUsageLogs(usageFilter, usageLimit)]);
+  }
+
+  async function loadUsageLogs(filter = usageFilter, limit = usageLimit) {
+    setUsageLoading(true);
+    setUsageAlert({ type: "", msg: "" });
+    try {
+      const response = await listAdminCdkUsage({
+        distribution_cdk: filter.trim() || undefined,
+        limit,
+      });
+      setUsageLogs(response.items);
+    } catch (error) {
+      handleUsageError(error);
+    } finally {
+      setUsageLoading(false);
+    }
+  }
+
   function handleProtectedError(error: unknown) {
     const message = getErrorMessage(error);
     if (isAuthError(error)) {
       setItems([]);
+      setUsageLogs([]);
       setAlert({ type: "", msg: "" });
+      setUsageAlert({ type: "", msg: "" });
       setAuthAlert({ type: "error", msg: message });
       setAuthStatus((current) =>
         current ? { ...current, authenticated: false, user: null } : current,
@@ -972,6 +1013,16 @@ function AdminPage() {
     }
 
     setAlert({ type: "error", msg: message });
+  }
+
+  function handleUsageError(error: unknown) {
+    const message = getErrorMessage(error);
+    if (isAuthError(error)) {
+      handleProtectedError(error);
+      return;
+    }
+
+    setUsageAlert({ type: "error", msg: message });
   }
 
   function startAdminLogin() {
@@ -985,6 +1036,7 @@ function AdminPage() {
     try {
       await logoutAdmin();
       setItems([]);
+      setUsageLogs([]);
       setAuthStatus((current) =>
         current ? { ...current, authenticated: false, user: null } : current,
       );
@@ -1046,6 +1098,30 @@ function AdminPage() {
   async function copyCdk(value: string) {
     await navigator.clipboard.writeText(value);
     setAlert({ type: "info", msg: "分发 CDK 已复制" });
+  }
+
+  async function traceCdk(value: string) {
+    setUsageFilter(value);
+    await loadUsageLogs(value, usageLimit);
+  }
+
+  async function resetUsageFilter() {
+    setUsageFilter("");
+    await loadUsageLogs("", usageLimit);
+  }
+
+  async function openUsageLog(log: CdkUsageLog) {
+    setActiveUsageLog(log);
+    setUsageDetailLoading(true);
+    setUsageAlert({ type: "", msg: "" });
+    try {
+      const detail = await getAdminCdkUsage(log.id);
+      setActiveUsageLog(detail);
+    } catch (error) {
+      handleUsageError(error);
+    } finally {
+      setUsageDetailLoading(false);
+    }
   }
 
   const adminUser = authStatus?.user;
@@ -1262,6 +1338,13 @@ function AdminPage() {
                               复制
                             </button>
                             <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => traceCdk(item.distribution_cdk)}
+                            >
+                              <FileSearch size={14} />
+                              溯源
+                            </button>
+                            <button
                               className="btn btn-danger btn-sm"
                               disabled={deletingId === item.id}
                               onClick={() => handleDelete(item)}
@@ -1282,9 +1365,220 @@ function AdminPage() {
               </div>
             )}
           </section>
+
+          <section className="glass-panel">
+            <div className="panel-toolbar">
+              <PanelTitle
+                icon={<FileSearch size={18} />}
+                title="CDK 使用溯源"
+                description="记录用户浏览器请求、命中映射、请求摘要和上游响应结果。"
+              />
+              <div className="history-search usage-search">
+                <input
+                  value={usageFilter}
+                  onChange={(event) => setUsageFilter(event.target.value)}
+                  placeholder="按分发 CDK 过滤"
+                />
+                <input
+                  className="limit-input"
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={usageLimit}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    if (Number.isFinite(next)) {
+                      setUsageLimit(Math.min(200, Math.max(1, next)));
+                    }
+                  }}
+                  aria-label="溯源记录数量"
+                />
+                <button
+                  className="btn btn-secondary"
+                  disabled={usageLoading}
+                  onClick={() => loadUsageLogs()}
+                >
+                  <Search size={16} />
+                  {usageLoading ? "查询中..." : "查询"}
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  disabled={usageLoading || !usageFilter.trim()}
+                  onClick={resetUsageFilter}
+                >
+                  <RefreshCcw size={16} />
+                  重置
+                </button>
+              </div>
+            </div>
+            {usageAlert.msg ? (
+              <Alert type={usageAlert.type}>{usageAlert.msg}</Alert>
+            ) : null}
+            {usageLogs.length ? (
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>CDK</th>
+                      <th>请求</th>
+                      <th>浏览器</th>
+                      <th>账号数</th>
+                      <th>上游</th>
+                      <th>耗时</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {usageLogs.map((log) => (
+                      <tr key={log.id}>
+                        <td>{formatTimestamp(log.created_at)}</td>
+                        <td className="mono">{usageCdkLabel(log)}</td>
+                        <td>
+                          <div className="stacked-cell">
+                            <strong>{log.request_method}</strong>
+                            <span>{log.request_path}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="stacked-cell">
+                            <strong>{log.client_ip || "-"}</strong>
+                            <span>{browserName(log.user_agent)}</span>
+                          </div>
+                        </td>
+                        <td>{log.account_count ?? "-"}</td>
+                        <td>
+                          <span className={`status-badge ${httpStatusClass(log.response_status)}`}>
+                            {log.response_status ?? "错误"}
+                          </span>
+                        </td>
+                        <td>{log.duration_ms}ms</td>
+                        <td>
+                          <button className="btn btn-secondary btn-sm" onClick={() => openUsageLog(log)}>
+                            <Eye size={14} />
+                            详情
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="empty-state">
+                {usageLoading ? "溯源记录加载中..." : "暂无 CDK 使用记录"}
+              </div>
+            )}
+          </section>
+
+          {activeUsageLog ? (
+            <CdkUsageDetailModal
+              log={activeUsageLog}
+              loading={usageDetailLoading}
+              onClose={() => setActiveUsageLog(null)}
+            />
+          ) : null}
         </>
       )}
     </section>
+  );
+}
+
+function CdkUsageDetailModal({
+  log,
+  loading,
+  onClose,
+}: {
+  log: CdkUsageLog;
+  loading: boolean;
+  onClose: () => void;
+}) {
+  const fullPath = `${log.request_path}${log.request_query ? `?${log.request_query}` : ""}`;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-content wide-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cdk-usage-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">CDK Trace</p>
+            <h2 id="cdk-usage-title">使用溯源详情</h2>
+          </div>
+          <button className="icon-btn" onClick={onClose} aria-label="关闭使用溯源详情">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="modal-body usage-detail">
+          {loading ? <Alert type="info">详情同步中...</Alert> : null}
+
+          <section>
+            <PanelTitle icon={<FileSearch size={18} />} title="请求链路" description={log.request_id} />
+            <div className="detail-grid">
+              <DetailItem label="时间">{formatTimestamp(log.created_at)}</DetailItem>
+              <DetailItem label="CDK">{usageCdkLabel(log)}</DetailItem>
+              <DetailItem label="映射状态">{log.matched_mapping ? "命中分发 CDK" : "未命中映射"}</DetailItem>
+              <DetailItem label="映射 ID">{log.mapping_id || "-"}</DetailItem>
+              <DetailItem label="备注">{log.cdk_note || "-"}</DetailItem>
+              <DetailItem label="耗时">{log.duration_ms}ms</DetailItem>
+            </div>
+          </section>
+
+          <section>
+            <PanelTitle icon={<Monitor size={18} />} title="浏览器上下文" description={log.client_ip || "-"} />
+            <div className="detail-grid">
+              <DetailItem label="客户端 IP">{log.client_ip || "-"}</DetailItem>
+              <DetailItem label="转发链">{log.forwarded_for || "-"}</DetailItem>
+              <DetailItem label="Origin">{log.origin || "-"}</DetailItem>
+              <DetailItem label="Referer">{log.referer || "-"}</DetailItem>
+              <DetailItem label="语言">{log.accept_language || "-"}</DetailItem>
+              <DetailItem label="User-Agent">{log.user_agent || "-"}</DetailItem>
+            </div>
+          </section>
+
+          <section>
+            <PanelTitle icon={<Send size={18} />} title="请求摘要" description={`${log.request_method} ${fullPath}`} />
+            <div className="detail-grid">
+              <DetailItem label="服务类型">{log.service_type || "-"}</DetailItem>
+              <DetailItem label="账号数">{log.account_count ?? "-"}</DetailItem>
+              <DetailItem label="请求体大小">{formatBytes(log.request_body_bytes)}</DetailItem>
+            </div>
+            <pre className="detail-pre">{log.request_summary || "-"}</pre>
+          </section>
+
+          <section>
+            <PanelTitle
+              icon={<Database size={18} />}
+              title="上游响应"
+              description={log.response_status ? String(log.response_status) : "请求失败"}
+            />
+            <div className="detail-grid">
+              <DetailItem label="状态码">{log.response_status ?? "-"}</DetailItem>
+              <DetailItem label="响应大小">
+                {log.response_body_bytes === null || log.response_body_bytes === undefined
+                  ? "-"
+                  : formatBytes(log.response_body_bytes)}
+              </DetailItem>
+              <DetailItem label="错误">{log.error || "-"}</DetailItem>
+            </div>
+            <pre className="detail-pre">{log.response_summary || "-"}</pre>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailItem({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="detail-item">
+      <span>{label}</span>
+      <strong>{children}</strong>
+    </div>
   );
 }
 
@@ -1584,6 +1878,54 @@ function formatTimestamp(value: string) {
     return new Date(numeric * 1000).toLocaleString();
   }
   return value;
+}
+
+function usageCdkLabel(log: CdkUsageLog) {
+  return log.distribution_cdk || log.requested_cdk_masked;
+}
+
+function browserName(userAgent?: string | null) {
+  if (!userAgent) {
+    return "-";
+  }
+
+  if (userAgent.includes("Edg/")) {
+    return "Edge";
+  }
+  if (userAgent.includes("Chrome/")) {
+    return "Chrome";
+  }
+  if (userAgent.includes("Firefox/")) {
+    return "Firefox";
+  }
+  if (userAgent.includes("Safari/")) {
+    return "Safari";
+  }
+
+  return userAgent.slice(0, 48);
+}
+
+function httpStatusClass(status?: number | null) {
+  if (!status) {
+    return "status-failed";
+  }
+  if (status >= 200 && status < 300) {
+    return "status-success";
+  }
+  if (status >= 400) {
+    return "status-failed";
+  }
+  return "status-running";
+}
+
+function formatBytes(value: number) {
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function downloadText(text: string, fileName: string) {

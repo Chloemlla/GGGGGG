@@ -21,7 +21,7 @@ mod proxy;
 mod state;
 
 use config::AppConfig;
-use models::{AdminSession, CdkMapping};
+use models::{AdminSession, CdkMapping, CdkUsageLog};
 use state::AppState;
 
 #[tokio::main]
@@ -42,8 +42,11 @@ async fn main() {
     let admin_sessions = mongo
         .database(&config.mongo_database)
         .collection::<AdminSession>("admin_sessions");
+    let usage_logs = mongo
+        .database(&config.mongo_database)
+        .collection::<CdkUsageLog>("cdk_usage_logs");
 
-    admin::ensure_indexes(&mappings)
+    admin::ensure_indexes(&mappings, &usage_logs)
         .await
         .expect("create MongoDB indexes");
 
@@ -52,6 +55,7 @@ async fn main() {
         http: HttpClient::new(),
         mappings,
         oauth: config.oauth.clone(),
+        usage_logs,
         upstream_base_url: config.upstream_base_url.clone(),
     };
 

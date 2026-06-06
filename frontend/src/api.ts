@@ -1,6 +1,7 @@
 import type {
   AdminCdkMapping,
   AdminAuthStatus,
+  CdkUsageLog,
   ExportAccount,
   ServiceType,
   Settings,
@@ -137,6 +138,23 @@ export function deleteAdminCdk(id: string) {
   return request<{ message: string }>(`/api/admin/cdks/${id}`, {
     method: 'DELETE'
   });
+}
+
+export function listAdminCdkUsage(params: { distribution_cdk?: string; limit?: number } = {}) {
+  const query = new URLSearchParams();
+  if (params.distribution_cdk?.trim()) {
+    query.set('distribution_cdk', params.distribution_cdk.trim());
+  }
+  if (params.limit) {
+    query.set('limit', String(params.limit));
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return request<{ items: CdkUsageLog[] }>(`/api/admin/cdk-usage${suffix}`);
+}
+
+export function getAdminCdkUsage(id: string) {
+  return request<CdkUsageLog>(`/api/admin/cdk-usage/${id}`);
 }
 
 export function getAdminAuthStatus() {

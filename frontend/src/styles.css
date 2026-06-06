@@ -739,6 +739,32 @@ button:disabled,
   width: min(280px, 100%);
 }
 
+.usage-search {
+  justify-content: flex-end;
+}
+
+.usage-search .limit-input {
+  width: 88px;
+}
+
+.stacked-cell {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 150px;
+}
+
+.stacked-cell strong {
+  color: var(--slate-900);
+  font-size: 0.8125rem;
+}
+
+.stacked-cell span {
+  color: var(--slate-500);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .table-wrapper {
   width: 100%;
   overflow-x: auto;
@@ -944,6 +970,54 @@ td a {
   gap: 1rem;
 }
 
+.usage-detail {
+  gap: 1.25rem;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.detail-item {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  border: 1px solid var(--slate-200);
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.78);
+  padding: 0.875rem;
+}
+
+.detail-item span {
+  color: var(--slate-500);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.detail-item strong {
+  color: var(--slate-800);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.detail-pre {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--slate-200);
+  border-radius: 18px;
+  background: var(--slate-950);
+  color: var(--slate-50);
+  padding: 1rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
 .progress-bar {
   width: 100%;
   height: 0.55rem;
@@ -1048,7 +1122,8 @@ td a {
   }
 
   .service-grid,
-  .metric-grid {
+  .metric-grid,
+  .detail-grid {
     grid-template-columns: 1fr;
   }
 

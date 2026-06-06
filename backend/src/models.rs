@@ -36,6 +36,78 @@ pub struct CdkMappingResponse {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CdkUsageLog {
+    #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
+    pub id: Option<ObjectId>,
+    pub request_id: String,
+    pub distribution_cdk: Option<String>,
+    pub requested_cdk_masked: String,
+    pub mapping_id: Option<ObjectId>,
+    pub cdk_note: Option<String>,
+    pub matched_mapping: bool,
+    pub request_method: String,
+    pub request_path: String,
+    pub request_query: Option<String>,
+    pub client_ip: Option<String>,
+    pub forwarded_for: Option<String>,
+    pub user_agent: Option<String>,
+    pub referer: Option<String>,
+    pub origin: Option<String>,
+    pub accept_language: Option<String>,
+    pub service_type: Option<String>,
+    pub account_count: Option<i64>,
+    pub request_body_bytes: i64,
+    pub request_summary: Option<String>,
+    pub response_status: Option<i32>,
+    pub response_body_bytes: Option<i64>,
+    pub response_summary: Option<String>,
+    pub error: Option<String>,
+    pub duration_ms: i64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CdkUsageQuery {
+    pub distribution_cdk: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CdkUsageListResponse {
+    pub items: Vec<CdkUsageLogResponse>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CdkUsageLogResponse {
+    pub id: String,
+    pub request_id: String,
+    pub distribution_cdk: Option<String>,
+    pub requested_cdk_masked: String,
+    pub mapping_id: Option<String>,
+    pub cdk_note: Option<String>,
+    pub matched_mapping: bool,
+    pub request_method: String,
+    pub request_path: String,
+    pub request_query: Option<String>,
+    pub client_ip: Option<String>,
+    pub forwarded_for: Option<String>,
+    pub user_agent: Option<String>,
+    pub referer: Option<String>,
+    pub origin: Option<String>,
+    pub accept_language: Option<String>,
+    pub service_type: Option<String>,
+    pub account_count: Option<i64>,
+    pub request_body_bytes: i64,
+    pub request_summary: Option<String>,
+    pub response_status: Option<i32>,
+    pub response_body_bytes: Option<i64>,
+    pub response_summary: Option<String>,
+    pub error: Option<String>,
+    pub duration_ms: i64,
+    pub created_at: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct MessageResponse {
     pub message: String,

@@ -83,6 +83,35 @@ export interface AdminCdkMapping {
   updated_at: string;
 }
 
+export interface CdkUsageLog {
+  id: string;
+  request_id: string;
+  distribution_cdk?: string | null;
+  requested_cdk_masked: string;
+  mapping_id?: string | null;
+  cdk_note?: string | null;
+  matched_mapping: boolean;
+  request_method: string;
+  request_path: string;
+  request_query?: string | null;
+  client_ip?: string | null;
+  forwarded_for?: string | null;
+  user_agent?: string | null;
+  referer?: string | null;
+  origin?: string | null;
+  accept_language?: string | null;
+  service_type?: string | null;
+  account_count?: number | null;
+  request_body_bytes: number;
+  request_summary?: string | null;
+  response_status?: number | null;
+  response_body_bytes?: number | null;
+  response_summary?: string | null;
+  error?: string | null;
+  duration_ms: number;
+  created_at: string;
+}
+
 export interface SynapseAdminUser {
   sub?: string;
   id?: string;
