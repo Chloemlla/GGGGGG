@@ -82,3 +82,26 @@ export interface AdminCdkMapping {
   created_at: string;
   updated_at: string;
 }
+
+export interface SynapseAdminUser {
+  sub?: string;
+  id?: string;
+  username?: string;
+  name?: string;
+  avatarUrl?: string;
+  role?: string;
+  isAdmin?: boolean;
+  synapseAdmin?: boolean;
+  authProvider?: string;
+  createdAt?: string;
+  accountStatus?: string;
+  email?: string;
+  emailVerified?: boolean;
+}
+
+export interface AdminAuthStatus {
+  authenticated: boolean;
+  configured: boolean;
+  login_url: string;
+  user?: SynapseAdminUser | null;
+}

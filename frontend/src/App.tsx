@@ -7,28 +7,36 @@ import {
   Eye,
   Home,
   KeyRound,
+  LogIn,
+  LogOut,
   Plus,
   RefreshCcw,
   Search,
   Send,
   Shield,
   Trash2,
+  UserCheck,
   X
 } from 'lucide-react';
 import {
+  apiUrl,
   cancelQueuedAccount,
   createAdminCdk,
   deleteAdminCdk,
   exportTasksByCard,
+  getAdminAuthStatus,
   getSettings,
   getTask,
   getTasksByCard,
+  isAuthError,
   listAdminCdks,
+  logoutAdmin,
   submitTask,
   verifyCard
 } from './api';
 import type {
   AccountStatus,
+  AdminAuthStatus,
   AdminCdkMapping,
   AlertType,
   CardInfo,
@@ -750,6 +758,9 @@ function TaskPanel() {
 }
 
 function AdminPage() {
+  const [authStatus, setAuthStatus] = useState<AdminAuthStatus | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authAlert, setAuthAlert] = useState({ type: '' as AlertType, msg: '' });
   const [items, setItems] = useState<AdminCdkMapping[]>([]);
   const [distributionCdk, setDistributionCdk] = useState('');
   const [upstreamCdk, setUpstreamCdk] = useState('');
@@ -757,11 +768,43 @@ function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState('');
+  const [loggingOut, setLoggingOut] = useState(false);
   const [alert, setAlert] = useState({ type: '' as AlertType, msg: '' });
 
   useEffect(() => {
-    loadCdks();
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get('auth_error');
+    if (authError) {
+      setAuthAlert({ type: 'error', msg: authError });
+      params.delete('auth_error');
+      const nextQuery = params.toString();
+      window.history.replaceState({}, '', `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`);
+    }
+
+    refreshAuthStatus();
   }, []);
+
+  async function refreshAuthStatus(loadData = true) {
+    setAuthLoading(true);
+    try {
+      const response = await getAdminAuthStatus();
+      setAuthStatus(response);
+      if (response.authenticated) {
+        setAuthAlert({ type: '', msg: '' });
+        if (loadData) {
+          await loadCdks();
+        }
+      } else {
+        setItems([]);
+      }
+    } catch (error) {
+      setAuthStatus(null);
+      setItems([]);
+      setAuthAlert({ type: 'error', msg: getErrorMessage(error) });
+    } finally {
+      setAuthLoading(false);
+    }
+  }
 
   async function loadCdks() {
     setLoading(true);
@@ -769,9 +812,41 @@ function AdminPage() {
       const response = await listAdminCdks();
       setItems(response.items);
     } catch (error) {
-      setAlert({ type: 'error', msg: getErrorMessage(error) });
+      handleProtectedError(error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  function handleProtectedError(error: unknown) {
+    const message = getErrorMessage(error);
+    if (isAuthError(error)) {
+      setItems([]);
+      setAlert({ type: '', msg: '' });
+      setAuthAlert({ type: 'error', msg: message });
+      setAuthStatus((current) => (current ? { ...current, authenticated: false, user: null } : current));
+      return;
+    }
+
+    setAlert({ type: 'error', msg: message });
+  }
+
+  function startAdminLogin() {
+    window.location.href = apiUrl(authStatus?.login_url || '/api/admin/auth/login');
+  }
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    try {
+      await logoutAdmin();
+      setItems([]);
+      setAuthStatus((current) => (current ? { ...current, authenticated: false, user: null } : current));
+      setAlert({ type: '', msg: '' });
+      setAuthAlert({ type: 'info', msg: '已退出 Synapse 管理员授权' });
+    } catch (error) {
+      setAuthAlert({ type: 'error', msg: getErrorMessage(error) });
+    } finally {
+      setLoggingOut(false);
     }
   }
 
@@ -796,7 +871,7 @@ function AdminPage() {
       setNote('');
       setAlert({ type: 'success', msg: '分发 CDK 已创建' });
     } catch (error) {
-      setAlert({ type: 'error', msg: getErrorMessage(error) });
+      handleProtectedError(error);
     } finally {
       setCreating(false);
     }
@@ -813,7 +888,7 @@ function AdminPage() {
       setItems((current) => current.filter((candidate) => candidate.id !== item.id));
       setAlert({ type: 'success', msg: '分发 CDK 已删除' });
     } catch (error) {
-      setAlert({ type: 'error', msg: getErrorMessage(error) });
+      handleProtectedError(error);
     } finally {
       setDeletingId('');
     }
@@ -824,130 +899,189 @@ function AdminPage() {
     setAlert({ type: 'info', msg: '分发 CDK 已复制' });
   }
 
+  const adminUser = authStatus?.user;
+  const adminName = adminUser?.username || adminUser?.name || adminUser?.email || 'Synapse 管理员';
+  const adminMeta = adminUser?.email || adminUser?.id || adminUser?.sub || 'active admin';
+
   return (
     <section className="page-stack" aria-labelledby="admin-title">
       <PageHeader
         eyebrow="Admin Distribution"
         title="分发 CDK 管理"
-        description="为用户创建可分发的 CDK，并在后端 MongoDB 中绑定真实上游 CDK。用户请求会自动替换后转发到 pixel.yh-mo.xyz。"
+        description="仅允许通过 Synapse OAuth 授权且当前仍为 active admin 的管理员访问。"
       />
 
-      <div className="admin-grid">
-        <section className="glass-panel">
-          <PanelTitle icon={<Plus size={18} />} title="创建分发 CDK" description="留空分发 CDK 时系统会自动生成。" />
-          <form className="form-stack" onSubmit={handleCreate}>
-            <div className="form-group">
-              <label htmlFor="distribution-cdk">分发 CDK</label>
-              <input
-                id="distribution-cdk"
-                value={distributionCdk}
-                onChange={(event) => setDistributionCdk(event.target.value)}
-                placeholder="可选，例如 promo-user-001"
-              />
-            </div>
-            <div className="form-group">
-              <label htmlFor="upstream-cdk">上游 CDK</label>
-              <input
-                id="upstream-cdk"
-                value={upstreamCdk}
-                onChange={(event) => setUpstreamCdk(event.target.value)}
-                placeholder="必填，真实 pixel.yh-mo.xyz 卡密"
-              />
-            </div>
-            <div className="form-group">
-              <label htmlFor="cdk-note">备注</label>
-              <input
-                id="cdk-note"
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                placeholder="可选，用于区分来源或客户"
-              />
-            </div>
-            {alert.msg ? <Alert type={alert.type}>{alert.msg}</Alert> : null}
-            <button className="btn btn-primary" disabled={creating} type="submit">
-              <Plus size={16} />
-              {creating ? '创建中...' : '创建分发 CDK'}
-            </button>
-          </form>
-        </section>
+      {authAlert.msg ? <Alert type={authAlert.type}>{authAlert.msg}</Alert> : null}
 
-        <section className="glass-panel info-panel">
-          <PanelTitle icon={<Database size={18} />} title="存储策略" description="MongoDB collection: cdk_mappings" />
-          <div className="info-list">
-            <div>
-              <strong>分发 CDK</strong>
-              <span>用户可见，用于主工作台验证和提交任务。</span>
-            </div>
-            <div>
-              <strong>上游 CDK</strong>
-              <span>只保存在后端，列表中仅展示脱敏值。</span>
-            </div>
-            <div>
-              <strong>代理策略</strong>
-              <span>请求体中的 card_key 命中分发 CDK 时替换为上游 CDK。</span>
-            </div>
-          </div>
+      {authLoading ? (
+        <section className="glass-panel auth-panel">
+          <PanelTitle icon={<Shield size={18} />} title="正在校验管理员授权" description="请稍候。" />
+          <div className="empty-state">授权状态读取中...</div>
         </section>
-      </div>
-
-      <section className="glass-panel">
-        <div className="panel-toolbar">
-          <PanelTitle icon={<KeyRound size={18} />} title="已创建 CDK" description="删除后该分发 CDK 将无法继续映射上游。" />
-          <button className="btn btn-secondary" disabled={loading} onClick={loadCdks}>
+      ) : !authStatus ? (
+        <section className="glass-panel auth-panel">
+          <PanelTitle icon={<Shield size={18} />} title="无法读取授权状态" description="请检查后端服务是否可用。" />
+          <button className="btn btn-secondary" onClick={() => refreshAuthStatus()}>
             <RefreshCcw size={16} />
-            {loading ? '刷新中...' : '刷新'}
+            重试
           </button>
-        </div>
-        {items.length ? (
-          <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>分发 CDK</th>
-                  <th>上游 CDK</th>
-                  <th>备注</th>
-                  <th>状态</th>
-                  <th>创建时间</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.id}>
-                    <td className="mono">{item.distribution_cdk}</td>
-                    <td className="mono">{item.upstream_cdk_masked}</td>
-                    <td>{item.note || '-'}</td>
-                    <td>
-                      <span className={`status-badge ${item.enabled ? 'status-success' : 'status-cancelled'}`}>
-                        {item.enabled ? '启用' : '停用'}
-                      </span>
-                    </td>
-                    <td>{formatTimestamp(item.created_at)}</td>
-                    <td>
-                      <div className="operation-cell">
-                        <button className="btn btn-secondary btn-sm" onClick={() => copyCdk(item.distribution_cdk)}>
-                          <Copy size={14} />
-                          复制
-                        </button>
-                        <button
-                          className="btn btn-danger btn-sm"
-                          disabled={deletingId === item.id}
-                          onClick={() => handleDelete(item)}
-                        >
-                          <Trash2 size={14} />
-                          {deletingId === item.id ? '删除中...' : '删除'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        </section>
+      ) : !authStatus.configured ? (
+        <section className="glass-panel auth-panel">
+          <PanelTitle
+            icon={<Shield size={18} />}
+            title="Synapse OAuth 未配置"
+            description="请配置 SYNAPSE_OAUTH_CLIENT_ID、SYNAPSE_OAUTH_CLIENT_SECRET 和 APP_BASE_URL。"
+          />
+        </section>
+      ) : !authStatus.authenticated ? (
+        <section className="glass-panel auth-panel">
+          <PanelTitle
+            icon={<Shield size={18} />}
+            title="需要 Synapse 管理员授权"
+            description="授权通过后才能访问分发 CDK 管理。"
+          />
+          <button className="btn btn-primary" onClick={startAdminLogin}>
+            <LogIn size={16} />
+            通过 Synapse 授权
+          </button>
+        </section>
+      ) : (
+        <>
+          <section className="glass-panel admin-auth-bar">
+            <div className="admin-auth-user">
+              <span className="panel-icon">
+                <UserCheck size={18} />
+              </span>
+              <div>
+                <strong>{adminName}</strong>
+                <span>{adminMeta}</span>
+              </div>
+            </div>
+            <button className="btn btn-secondary" disabled={loggingOut} onClick={handleLogout}>
+              <LogOut size={16} />
+              {loggingOut ? '退出中...' : '退出授权'}
+            </button>
+          </section>
+
+          <div className="admin-grid">
+            <section className="glass-panel">
+              <PanelTitle icon={<Plus size={18} />} title="创建分发 CDK" description="留空分发 CDK 时系统会自动生成。" />
+              <form className="form-stack" onSubmit={handleCreate}>
+                <div className="form-group">
+                  <label htmlFor="distribution-cdk">分发 CDK</label>
+                  <input
+                    id="distribution-cdk"
+                    value={distributionCdk}
+                    onChange={(event) => setDistributionCdk(event.target.value)}
+                    placeholder="可选，例如 promo-user-001"
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="upstream-cdk">上游 CDK</label>
+                  <input
+                    id="upstream-cdk"
+                    value={upstreamCdk}
+                    onChange={(event) => setUpstreamCdk(event.target.value)}
+                    placeholder="必填，真实 pixel.yh-mo.xyz 卡密"
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="cdk-note">备注</label>
+                  <input
+                    id="cdk-note"
+                    value={note}
+                    onChange={(event) => setNote(event.target.value)}
+                    placeholder="可选，用于区分来源或客户"
+                  />
+                </div>
+                {alert.msg ? <Alert type={alert.type}>{alert.msg}</Alert> : null}
+                <button className="btn btn-primary" disabled={creating} type="submit">
+                  <Plus size={16} />
+                  {creating ? '创建中...' : '创建分发 CDK'}
+                </button>
+              </form>
+            </section>
+
+            <section className="glass-panel info-panel">
+              <PanelTitle icon={<Database size={18} />} title="存储策略" description="MongoDB collection: cdk_mappings" />
+              <div className="info-list">
+                <div>
+                  <strong>分发 CDK</strong>
+                  <span>用户可见，用于主工作台验证和提交任务。</span>
+                </div>
+                <div>
+                  <strong>上游 CDK</strong>
+                  <span>只保存在后端，列表中仅展示脱敏值。</span>
+                </div>
+                <div>
+                  <strong>代理策略</strong>
+                  <span>请求体中的 card_key 命中分发 CDK 时替换为上游 CDK。</span>
+                </div>
+              </div>
+            </section>
           </div>
-        ) : (
-          <div className="empty-state">{loading ? 'CDK 列表加载中...' : '还没有分发 CDK'}</div>
-        )}
-      </section>
+
+          <section className="glass-panel">
+            <div className="panel-toolbar">
+              <PanelTitle icon={<KeyRound size={18} />} title="已创建 CDK" description="删除后该分发 CDK 将无法继续映射上游。" />
+              <button className="btn btn-secondary" disabled={loading} onClick={loadCdks}>
+                <RefreshCcw size={16} />
+                {loading ? '刷新中...' : '刷新'}
+              </button>
+            </div>
+            {items.length ? (
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>分发 CDK</th>
+                      <th>上游 CDK</th>
+                      <th>备注</th>
+                      <th>状态</th>
+                      <th>创建时间</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => (
+                      <tr key={item.id}>
+                        <td className="mono">{item.distribution_cdk}</td>
+                        <td className="mono">{item.upstream_cdk_masked}</td>
+                        <td>{item.note || '-'}</td>
+                        <td>
+                          <span className={`status-badge ${item.enabled ? 'status-success' : 'status-cancelled'}`}>
+                            {item.enabled ? '启用' : '停用'}
+                          </span>
+                        </td>
+                        <td>{formatTimestamp(item.created_at)}</td>
+                        <td>
+                          <div className="operation-cell">
+                            <button className="btn btn-secondary btn-sm" onClick={() => copyCdk(item.distribution_cdk)}>
+                              <Copy size={14} />
+                              复制
+                            </button>
+                            <button
+                              className="btn btn-danger btn-sm"
+                              disabled={deletingId === item.id}
+                              onClick={() => handleDelete(item)}
+                            >
+                              <Trash2 size={14} />
+                              {deletingId === item.id ? '删除中...' : '删除'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="empty-state">{loading ? 'CDK 列表加载中...' : '还没有分发 CDK'}</div>
+            )}
+          </section>
+        </>
+      )}
     </section>
   );
 }

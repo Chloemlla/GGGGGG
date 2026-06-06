@@ -1,5 +1,6 @@
 import type {
   AdminCdkMapping,
+  AdminAuthStatus,
   ExportAccount,
   ServiceType,
   Settings,
@@ -9,6 +10,16 @@ import type {
 } from './types';
 
 const API_BASE = resolveApiBase();
+
+export class ApiRequestError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.status = status;
+  }
+}
 
 function resolveApiBase() {
   const configured = import.meta.env.VITE_API_BASE?.trim();
@@ -25,6 +36,7 @@ function resolveApiBase() {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...init.headers
@@ -36,10 +48,22 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const data = text ? JSON.parse(text) : {};
 
   if (!response.ok) {
-    throw new Error(data.detail || '请求失败');
+    throw new ApiRequestError(data.detail || '请求失败', response.status);
   }
 
   return data as T;
+}
+
+export function apiUrl(path: string) {
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+
+  return `${API_BASE}${path}`;
+}
+
+export function isAuthError(error: unknown) {
+  return error instanceof ApiRequestError && (error.status === 401 || error.status === 403);
 }
 
 export function getSettings() {
@@ -112,5 +136,15 @@ export function createAdminCdk(payload: {
 export function deleteAdminCdk(id: string) {
   return request<{ message: string }>(`/api/admin/cdks/${id}`, {
     method: 'DELETE'
+  });
+}
+
+export function getAdminAuthStatus() {
+  return request<AdminAuthStatus>('/api/admin/auth/status');
+}
+
+export function logoutAdmin() {
+  return request<{ message: string }>('/api/admin/auth/logout', {
+    method: 'POST'
   });
 }

@@ -379,6 +379,50 @@ a:hover {
   padding: 1.25rem;
 }
 
+.auth-panel {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  max-width: 680px;
+}
+
+.admin-auth-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-auth-user {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  min-width: 0;
+}
+
+.admin-auth-user div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.admin-auth-user strong,
+.admin-auth-user span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-auth-user strong {
+  color: var(--slate-900);
+  font-size: 0.95rem;
+}
+
+.admin-auth-user span {
+  color: var(--slate-500);
+  font-size: 0.8125rem;
+}
+
 .panel-toolbar {
   display: flex;
   align-items: flex-start;
@@ -953,6 +997,7 @@ td a {
   }
 
   .panel-toolbar,
+  .admin-auth-bar,
   .modal-toolbar {
     align-items: stretch;
     flex-direction: column;
