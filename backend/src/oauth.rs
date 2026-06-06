@@ -10,7 +10,7 @@ use url::{Url, form_urlencoded};
 use uuid::Uuid;
 
 use crate::{
-    error::{ApiError, ApiResult},
+    error::ApiError,
     models::{
         AdminAuthStatusResponse, AdminSession, MessageResponse, OAuthCallbackQuery,
         OAuthErrorResponse, OAuthTokenResponse, SynapseAdminUser,
@@ -93,14 +93,16 @@ pub async fn require_admin(
 async fn auth_status(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> ApiResult<AdminAuthStatusResponse> {
+) -> Result<Response, ApiError> {
     if !state.oauth.enabled() {
         return Ok(Json(AdminAuthStatusResponse {
             authenticated: false,
             configured: false,
             login_url: LOGIN_URL.to_string(),
+            message: Some("Synapse OAuth 未配置，管理员管理不可用".to_string()),
             user: None,
-        }));
+        })
+        .into_response());
     }
 
     match require_admin(&state, &headers).await {
@@ -108,14 +110,21 @@ async fn auth_status(
             authenticated: true,
             configured: true,
             login_url: LOGIN_URL.to_string(),
+            message: None,
             user: Some(user),
-        })),
-        Err(error) if is_auth_failure(&error) => Ok(Json(AdminAuthStatusResponse {
-            authenticated: false,
-            configured: true,
-            login_url: LOGIN_URL.to_string(),
-            user: None,
-        })),
+        })
+        .into_response()),
+        Err(error) if is_auth_failure(&error) => {
+            let response = Json(AdminAuthStatusResponse {
+                authenticated: false,
+                configured: true,
+                login_url: LOGIN_URL.to_string(),
+                message: Some(error.detail().to_string()),
+                user: None,
+            })
+            .into_response();
+            Ok(with_set_cookie(response, clear_session_cookie(&state)))
+        }
         Err(error) => Err(error),
     }
 }

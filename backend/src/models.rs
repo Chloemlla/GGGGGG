@@ -166,6 +166,7 @@ pub struct AdminAuthStatusResponse {
     pub authenticated: bool,
     pub configured: bool,
     pub login_url: String,
+    pub message: Option<String>,
     pub user: Option<SynapseAdminUser>,
 }
 
