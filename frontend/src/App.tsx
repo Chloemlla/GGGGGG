@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import {
   Check,
   Copy,
@@ -16,8 +23,8 @@ import {
   Shield,
   Trash2,
   UserCheck,
-  X
-} from 'lucide-react';
+  X,
+} from "lucide-react";
 import {
   apiUrl,
   cancelQueuedAccount,
@@ -32,8 +39,8 @@ import {
   listAdminCdks,
   logoutAdmin,
   submitTask,
-  verifyCard
-} from './api';
+  verifyCard,
+} from "./api";
 import type {
   AccountStatus,
   AdminAuthStatus,
@@ -46,38 +53,42 @@ import type {
   TaskDetail,
   TaskStatus,
   TaskSummary,
-  VerifyCardResponse
-} from './types';
+  VerifyCardResponse,
+} from "./types";
 
 const PAGE_SIZE = 10;
-const PAYMENT_WARNING_KEY = 'payment_warning_dismissed_date';
-const FINAL_TASK_STATUSES = new Set<TaskStatus>(['completed', 'failed', 'cancelled']);
+const PAYMENT_WARNING_KEY = "payment_warning_dismissed_date";
+const FINAL_TASK_STATUSES = new Set<TaskStatus>([
+  "completed",
+  "failed",
+  "cancelled",
+]);
 const DONE_ACCOUNT_STATUSES = new Set<AccountStatus>([
-  'success',
-  'failed',
-  'bind_success',
-  'bind_failed',
-  'cancelled'
+  "success",
+  "failed",
+  "bind_success",
+  "bind_failed",
+  "cancelled",
 ]);
 const EXPORTABLE_ACCOUNT_STATUSES = new Set<AccountStatus>([
-  'success',
-  'bind_pending',
-  'binding',
-  'bind_success',
-  'bind_failed'
+  "success",
+  "bind_pending",
+  "binding",
+  "bind_success",
+  "bind_failed",
 ]);
 
 const statusLabels: Record<TaskStatus | AccountStatus, string> = {
-  pending: '排队中',
-  running: '运行中',
-  completed: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
-  success: '成功',
-  bind_pending: '待绑卡',
-  binding: '绑卡中',
-  bind_success: '绑卡成功',
-  bind_failed: '绑卡失败'
+  pending: "排队中",
+  running: "运行中",
+  completed: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+  success: "成功",
+  bind_pending: "待绑卡",
+  binding: "绑卡中",
+  bind_success: "绑卡成功",
+  bind_failed: "绑卡失败",
 };
 
 const serviceOptions: Array<{
@@ -89,41 +100,44 @@ const serviceOptions: Array<{
   disabledMessage?: string;
   note?: string;
 }> = [
-  { value: 'link_only', label: '只提取链接', cost: 0.5, costText: '0.5' },
+  { value: "link_only", label: "只提取链接", cost: 0.5, costText: "0.5" },
   {
-    value: 'link_and_bind',
-    label: '提取链接 + 手机绑卡',
+    value: "link_and_bind",
+    label: "提取链接 + 手机绑卡",
     cost: 1,
-    costText: '1',
-    settingKey: 'auto_bind_enabled',
-    disabledMessage: '目前手机绑卡暂时关闭',
-    note: '已有优惠链接时仅扣 0.5 额度'
+    costText: "1",
+    settingKey: "auto_bind_enabled",
+    disabledMessage: "目前手机绑卡暂时关闭",
+    note: "已有优惠链接时仅扣 0.5 额度",
   },
   {
-    value: 'link_and_bind_1usd',
-    label: '提取链接 + 一刀卡绑卡',
+    value: "link_and_bind_1usd",
+    label: "提取链接 + 一刀卡绑卡",
     cost: 1.5,
-    costText: '1.5',
-    settingKey: 'auto_bind_one_dollar_enabled',
-    disabledMessage: '目前一刀卡绑卡暂时关闭',
-    note: '已有优惠链接时仅扣 1 额度'
-  }
+    costText: "1.5",
+    settingKey: "auto_bind_one_dollar_enabled",
+    disabledMessage: "目前一刀卡绑卡暂时关闭",
+    note: "已有优惠链接时仅扣 1 额度",
+  },
 ];
 
-type RouteName = 'workspace' | 'admin';
+type RouteName = "workspace" | "admin";
 
 function App() {
-  const [route, setRoute] = useState<RouteName>(() => routeFromPath(window.location.pathname));
+  const [route, setRoute] = useState<RouteName>(() =>
+    routeFromPath(window.location.pathname),
+  );
 
   useEffect(() => {
-    const handlePopState = () => setRoute(routeFromPath(window.location.pathname));
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    const handlePopState = () =>
+      setRoute(routeFromPath(window.location.pathname));
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
   function navigate(nextRoute: RouteName) {
-    const path = nextRoute === 'admin' ? '/admin' : '/';
-    window.history.pushState({}, '', path);
+    const path = nextRoute === "admin" ? "/admin" : "/";
+    window.history.pushState({}, "", path);
     setRoute(nextRoute);
   }
 
@@ -135,7 +149,11 @@ function App() {
       </a>
       <nav className="app-nav" aria-label="主导航">
         <div className="nav-inner">
-          <button className="brand-link" onClick={() => navigate('workspace')} aria-label="返回工作台">
+          <button
+            className="brand-link"
+            onClick={() => navigate("workspace")}
+            aria-label="返回工作台"
+          >
             <span className="brand-mark">
               <Shield size={18} />
             </span>
@@ -143,17 +161,17 @@ function App() {
           </button>
           <div className="nav-actions">
             <button
-              className={`nav-button ${route === 'workspace' ? 'active' : ''}`}
-              onClick={() => navigate('workspace')}
-              aria-current={route === 'workspace' ? 'page' : undefined}
+              className={`nav-button ${route === "workspace" ? "active" : ""}`}
+              onClick={() => navigate("workspace")}
+              aria-current={route === "workspace" ? "page" : undefined}
             >
               <Home size={16} />
               工作台
             </button>
             <button
-              className={`nav-button ${route === 'admin' ? 'active' : ''}`}
-              onClick={() => navigate('admin')}
-              aria-current={route === 'admin' ? 'page' : undefined}
+              className={`nav-button ${route === "admin" ? "active" : ""}`}
+              onClick={() => navigate("admin")}
+              aria-current={route === "admin" ? "page" : undefined}
             >
               <KeyRound size={16} />
               管理员
@@ -162,11 +180,10 @@ function App() {
         </div>
       </nav>
       <main id="app-main-content" tabIndex={-1} className="app-main">
-        {route === 'admin' ? <AdminPage /> : <TaskPanel />}
+        {route === "admin" ? <AdminPage /> : <TaskPanel />}
       </main>
       <footer className="app-footer">
-        <span>Base URL: https://pixel.yh-mo.xyz</span>
-        <span>MongoDB 持久化分发 CDK</span>
+        <span>Gemini 自助提取优惠链接系统</span>
       </footer>
     </div>
   );
@@ -175,26 +192,35 @@ function App() {
 function TaskPanel() {
   const [settings, setSettings] = useState<Settings>({
     auto_bind_enabled: false,
-    auto_bind_one_dollar_enabled: false
+    auto_bind_one_dollar_enabled: false,
   });
-  const [cardKey, setCardKey] = useState('');
+  const [cardKey, setCardKey] = useState("");
   const [verifying, setVerifying] = useState(false);
-  const [cardAlert, setCardAlert] = useState({ type: '' as AlertType, msg: '' });
+  const [cardAlert, setCardAlert] = useState({
+    type: "" as AlertType,
+    msg: "",
+  });
   const [cardInfo, setCardInfo] = useState<CardInfo | null>(null);
   const [history, setHistory] = useState<TaskSummary[]>([]);
-  const [historyMessage, setHistoryMessage] = useState('');
+  const [historyMessage, setHistoryMessage] = useState("");
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyQuery, setHistoryQuery] = useState('');
+  const [historyQuery, setHistoryQuery] = useState("");
   const [page, setPage] = useState(1);
   const [exportingAll, setExportingAll] = useState(false);
-  const [serviceType, setServiceType] = useState<ServiceType>('link_only');
-  const [accountsText, setAccountsText] = useState('');
+  const [serviceType, setServiceType] = useState<ServiceType>("link_only");
+  const [accountsText, setAccountsText] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [submitAlert, setSubmitAlert] = useState({ type: '' as AlertType, msg: '' });
+  const [submitAlert, setSubmitAlert] = useState({
+    type: "" as AlertType,
+    msg: "",
+  });
   const [detailOpen, setDetailOpen] = useState(false);
-  const [activeTaskId, setActiveTaskId] = useState('');
+  const [activeTaskId, setActiveTaskId] = useState("");
   const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null);
-  const [detailAlert, setDetailAlert] = useState({ type: '' as AlertType, msg: '' });
+  const [detailAlert, setDetailAlert] = useState({
+    type: "" as AlertType,
+    msg: "",
+  });
   const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [dismissToday, setDismissToday] = useState(false);
   const [showPaymentWarning, setShowPaymentWarning] = useState(() => {
@@ -208,43 +234,62 @@ function TaskPanel() {
   const resolvedServices = useMemo(
     () =>
       serviceOptions.map((option) => {
-        const disabled = option.settingKey ? !settings[option.settingKey] : false;
+        const disabled = option.settingKey
+          ? !settings[option.settingKey]
+          : false;
         return {
           ...option,
           disabled,
-          displayNote: disabled ? option.disabledMessage : option.note
+          displayNote: disabled ? option.disabledMessage : option.note,
         };
       }),
-    [settings]
+    [settings],
   );
-  const selectedService = resolvedServices.find((option) => option.value === serviceType) ?? resolvedServices[0];
+  const selectedService =
+    resolvedServices.find((option) => option.value === serviceType) ??
+    resolvedServices[0];
   const accountCount = useMemo(
-    () => accountsText.split('\n').filter((line) => line.trim()).length,
-    [accountsText]
+    () => accountsText.split("\n").filter((line) => line.trim()).length,
+    [accountsText],
   );
   const estimatedCost = useMemo(() => {
     const total = accountCount * selectedService.cost;
     return Number.isInteger(total) ? String(total) : total.toFixed(1);
   }, [accountCount, selectedService.cost]);
   const totalPages = Math.max(1, Math.ceil(history.length / PAGE_SIZE));
-  const visibleHistory = history.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const visibleHistory = history.slice(
+    (page - 1) * PAGE_SIZE,
+    page * PAGE_SIZE,
+  );
   const hasExportableHistory = history.some((task) => task.success > 0);
-  const completedCount = taskDetail?.accounts.filter((account) => DONE_ACCOUNT_STATUSES.has(account.status)).length ?? 0;
-  const cancelledCount = taskDetail?.accounts.filter((account) => account.status === 'cancelled').length ?? 0;
-  const progress = taskDetail?.total_accounts ? Math.round((completedCount / taskDetail.total_accounts) * 100) : 0;
+  const completedCount =
+    taskDetail?.accounts.filter((account) =>
+      DONE_ACCOUNT_STATUSES.has(account.status),
+    ).length ?? 0;
+  const cancelledCount =
+    taskDetail?.accounts.filter((account) => account.status === "cancelled")
+      .length ?? 0;
+  const progress = taskDetail?.total_accounts
+    ? Math.round((completedCount / taskDetail.total_accounts) * 100)
+    : 0;
 
   useEffect(() => {
     getSettings()
       .then(setSettings)
       .catch(() => {
-        setSettings({ auto_bind_enabled: false, auto_bind_one_dollar_enabled: false });
+        setSettings({
+          auto_bind_enabled: false,
+          auto_bind_one_dollar_enabled: false,
+        });
       });
   }, []);
 
   useEffect(() => {
-    const current = resolvedServices.find((option) => option.value === serviceType);
+    const current = resolvedServices.find(
+      (option) => option.value === serviceType,
+    );
     if (current?.disabled) {
-      setServiceType('link_only');
+      setServiceType("link_only");
     }
   }, [resolvedServices, serviceType]);
 
@@ -260,7 +305,7 @@ function TaskPanel() {
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === "Escape") {
         if (detailOpen) {
           closeDetail();
         }
@@ -269,8 +314,8 @@ function TaskPanel() {
         }
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [detailOpen, showPaymentWarning]);
 
   useEffect(() => {
@@ -318,7 +363,7 @@ function TaskPanel() {
     try {
       const response = await getTasksByCard(key, historyQuery.trim());
       setHistory(response.tasks || []);
-      setHistoryMessage(response.message || '');
+      setHistoryMessage(response.message || "");
       if (resetPage) {
         setPage(1);
       }
@@ -352,33 +397,39 @@ function TaskPanel() {
     }
 
     setVerifying(true);
-    setCardAlert({ type: '', msg: '' });
+    setCardAlert({ type: "", msg: "" });
     if (resetTask) {
       closeDetail();
-      setSubmitAlert({ type: '', msg: '' });
+      setSubmitAlert({ type: "", msg: "" });
     }
 
     try {
       const response = await verifyCard(key);
       if (response.valid) {
         setCardInfo(normalizeCardInfo(response));
-        setCardAlert({ type: 'success', msg: response.message });
+        setCardAlert({ type: "success", msg: response.message });
         await loadHistory();
-      } else if (response.remaining !== null && response.remaining !== undefined) {
+      } else if (
+        response.remaining !== null &&
+        response.remaining !== undefined
+      ) {
         setCardInfo(normalizeCardInfo(response));
-        setCardAlert({ type: 'info', msg: `${response.message}（可查看历史任务）` });
+        setCardAlert({
+          type: "info",
+          msg: `${response.message}（可查看历史任务）`,
+        });
         await loadHistory();
       } else {
         setCardInfo(null);
         setHistory([]);
-        setHistoryMessage('');
-        setCardAlert({ type: 'error', msg: response.message });
+        setHistoryMessage("");
+        setCardAlert({ type: "error", msg: response.message });
       }
     } catch (error) {
       setCardInfo(null);
       setHistory([]);
-      setHistoryMessage('');
-      setCardAlert({ type: 'error', msg: getErrorMessage(error) });
+      setHistoryMessage("");
+      setCardAlert({ type: "error", msg: getErrorMessage(error) });
     } finally {
       setVerifying(false);
     }
@@ -386,31 +437,39 @@ function TaskPanel() {
 
   async function handleSubmit() {
     if (selectedService.disabled) {
-      setSubmitAlert({ type: 'info', msg: selectedService.disabledMessage || selectedService.displayNote || '' });
+      setSubmitAlert({
+        type: "info",
+        msg:
+          selectedService.disabledMessage || selectedService.displayNote || "",
+      });
       return;
     }
     if (!cardKey.trim()) {
-      setSubmitAlert({ type: 'error', msg: '请先输入并验证卡密' });
+      setSubmitAlert({ type: "error", msg: "请先输入并验证卡密" });
       return;
     }
     if (!accountsText.trim()) {
-      setSubmitAlert({ type: 'error', msg: '请输入账号信息' });
+      setSubmitAlert({ type: "error", msg: "请输入账号信息" });
       return;
     }
 
     setSubmitting(true);
-    setSubmitAlert({ type: '', msg: '' });
+    setSubmitAlert({ type: "", msg: "" });
     try {
-      const response = await submitTask(cardKey.trim(), accountsText, serviceType);
-      setSubmitAlert({ type: 'success', msg: response.message });
+      const response = await submitTask(
+        cardKey.trim(),
+        accountsText,
+        serviceType,
+      );
+      setSubmitAlert({ type: "success", msg: response.message });
       setActiveTaskId(response.task_id);
       setTaskDetail(null);
-      setDetailAlert({ type: '', msg: '' });
+      setDetailAlert({ type: "", msg: "" });
       setDetailOpen(true);
       await refreshCardInfo();
       await loadHistory(false);
     } catch (error) {
-      setSubmitAlert({ type: 'error', msg: getErrorMessage(error) });
+      setSubmitAlert({ type: "error", msg: getErrorMessage(error) });
     } finally {
       setSubmitting(false);
     }
@@ -419,16 +478,16 @@ function TaskPanel() {
   function openTask(taskId: string) {
     setActiveTaskId(taskId);
     setTaskDetail(null);
-    setDetailAlert({ type: '', msg: '' });
+    setDetailAlert({ type: "", msg: "" });
     setCancellingId(null);
     setDetailOpen(true);
   }
 
   function closeDetail() {
     setDetailOpen(false);
-    setActiveTaskId('');
+    setActiveTaskId("");
     setTaskDetail(null);
-    setDetailAlert({ type: '', msg: '' });
+    setDetailAlert({ type: "", msg: "" });
     setCancellingId(null);
   }
 
@@ -436,15 +495,19 @@ function TaskPanel() {
     try {
       const detail = await getTask(taskId);
       const accounts = detail.accounts.filter(
-        (account) => EXPORTABLE_ACCOUNT_STATUSES.has(account.status) && account.result_link
+        (account) =>
+          EXPORTABLE_ACCOUNT_STATUSES.has(account.status) &&
+          account.result_link,
       );
       if (!accounts.length) {
-        window.alert('该任务没有成功的账号');
+        window.alert("该任务没有成功的账号");
         return;
       }
       downloadText(
-        accounts.map((account) => `${account.email}----${account.result_link}`).join('\n'),
-        `task_${taskId.slice(0, 8)}_success.txt`
+        accounts
+          .map((account) => `${account.email}----${account.result_link}`)
+          .join("\n"),
+        `task_${taskId.slice(0, 8)}_success.txt`,
       );
     } catch (error) {
       window.alert(`导出失败: ${getErrorMessage(error)}`);
@@ -453,24 +516,29 @@ function TaskPanel() {
 
   async function exportAll() {
     if (!cardKey.trim()) {
-      window.alert('请先验证卡密');
+      window.alert("请先验证卡密");
       return;
     }
     if (!hasExportableHistory) {
-      window.alert('当前历史任务没有可导出的成功账号');
+      window.alert("当前历史任务没有可导出的成功账号");
       return;
     }
 
     setExportingAll(true);
     try {
-      const response = await exportTasksByCard(cardKey.trim(), historyQuery.trim());
+      const response = await exportTasksByCard(
+        cardKey.trim(),
+        historyQuery.trim(),
+      );
       if (!response.accounts.length) {
-        window.alert('当前历史任务没有可导出的成功账号');
+        window.alert("当前历史任务没有可导出的成功账号");
         return;
       }
       downloadText(
-        response.accounts.map((account) => `${account.email}----${account.result_link}`).join('\n'),
-        timestampedFileName('all_tasks_success')
+        response.accounts
+          .map((account) => `${account.email}----${account.result_link}`)
+          .join("\n"),
+        timestampedFileName("all_tasks_success"),
       );
     } catch (error) {
       window.alert(`全部导出失败: ${getErrorMessage(error)}`);
@@ -481,21 +549,23 @@ function TaskPanel() {
 
   async function cancelAccount(account: TaskAccount) {
     const label = account.email || `第 ${account.line_number} 行`;
-    if (!window.confirm(`确认取消 ${label} 的排队吗？取消后会回补未消费额度。`)) {
+    if (
+      !window.confirm(`确认取消 ${label} 的排队吗？取消后会回补未消费额度。`)
+    ) {
       return;
     }
 
     setCancellingId(account.id);
-    setDetailAlert({ type: '', msg: '' });
+    setDetailAlert({ type: "", msg: "" });
     try {
       const response = await cancelQueuedAccount(activeTaskId, account.id);
-      setDetailAlert({ type: 'success', msg: response.message });
+      setDetailAlert({ type: "success", msg: response.message });
       await refreshCardInfo();
       const detail = await getTask(activeTaskId);
       setTaskDetail(detail);
       updateHistoryFromDetail(detail);
     } catch (error) {
-      setDetailAlert({ type: 'error', msg: getErrorMessage(error) });
+      setDetailAlert({ type: "error", msg: getErrorMessage(error) });
     } finally {
       setCancellingId(null);
     }
@@ -508,13 +578,19 @@ function TaskPanel() {
           return item;
         }
         const success = detail.accounts.filter(
-          (account) => account.status === 'success' || account.status === 'bind_success'
+          (account) =>
+            account.status === "success" || account.status === "bind_success",
         ).length;
         const failed = detail.accounts.filter(
-          (account) => account.status === 'failed' || account.status === 'bind_failed'
+          (account) =>
+            account.status === "failed" || account.status === "bind_failed",
         ).length;
-        const cancelled = detail.accounts.filter((account) => account.status === 'cancelled').length;
-        const done = detail.accounts.filter((account) => DONE_ACCOUNT_STATUSES.has(account.status)).length;
+        const cancelled = detail.accounts.filter(
+          (account) => account.status === "cancelled",
+        ).length;
+        const done = detail.accounts.filter((account) =>
+          DONE_ACCOUNT_STATUSES.has(account.status),
+        ).length;
         return {
           ...item,
           status: detail.status,
@@ -522,9 +598,9 @@ function TaskPanel() {
           success,
           failed,
           cancelled,
-          done
+          done,
         };
-      })
+      }),
     );
   }
 
@@ -549,7 +625,11 @@ function TaskPanel() {
 
       <div className="workspace-grid">
         <section className="glass-panel">
-          <PanelTitle icon={<KeyRound size={18} />} title="卡密验证" description="验证额度并载入当前卡密历史任务。" />
+          <PanelTitle
+            icon={<KeyRound size={18} />}
+            title="卡密验证"
+            description="验证额度并载入当前卡密历史任务。"
+          />
           <div className="form-group">
             <label htmlFor="card-key">卡密 / 分发 CDK</label>
             <div className="inline-form">
@@ -558,19 +638,25 @@ function TaskPanel() {
                 value={cardKey}
                 onChange={(event) => setCardKey(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
+                  if (event.key === "Enter") {
                     handleVerify();
                   }
                 }}
                 placeholder="请输入卡密或管理员分发 CDK"
               />
-              <button className="btn btn-primary" disabled={verifying} onClick={() => handleVerify()}>
+              <button
+                className="btn btn-primary"
+                disabled={verifying}
+                onClick={() => handleVerify()}
+              >
                 <Check size={16} />
-                {verifying ? '验证中...' : '验证'}
+                {verifying ? "验证中..." : "验证"}
               </button>
             </div>
           </div>
-          {cardAlert.msg ? <Alert type={cardAlert.type}>{cardAlert.msg}</Alert> : null}
+          {cardAlert.msg ? (
+            <Alert type={cardAlert.type}>{cardAlert.msg}</Alert>
+          ) : null}
           {cardInfo ? (
             <div className="metric-grid">
               <Metric label="剩余额度" value={cardInfo.remaining} />
@@ -580,14 +666,18 @@ function TaskPanel() {
         </section>
 
         <section className="glass-panel">
-          <PanelTitle icon={<Send size={18} />} title="提交任务" description="每行一个账号，提交后自动轮询任务详情。" />
+          <PanelTitle
+            icon={<Send size={18} />}
+            title="提交任务"
+            description="每行一个账号，提交后自动轮询任务详情。"
+          />
           <div className="form-group">
             <label>服务类型</label>
             <div className="service-grid">
               {resolvedServices.map((option) => (
                 <button
                   key={option.value}
-                  className={`service-option ${serviceType === option.value ? 'selected' : ''}`}
+                  className={`service-option ${serviceType === option.value ? "selected" : ""}`}
                   aria-disabled={option.disabled}
                   onClick={() => {
                     if (!option.disabled) {
@@ -597,7 +687,9 @@ function TaskPanel() {
                 >
                   <span>{option.label}</span>
                   <strong>{option.costText} 额度/账号</strong>
-                  {option.displayNote ? <small>{option.displayNote}</small> : null}
+                  {option.displayNote ? (
+                    <small>{option.displayNote}</small>
+                  ) : null}
                 </button>
               ))}
             </div>
@@ -612,20 +704,32 @@ function TaskPanel() {
               placeholder="每行一个账号，格式：邮箱----密码----辅助邮箱----2FA密钥"
             />
             <div className="hint">
-              {accountCount ? `共 ${accountCount} 个账号，预计最多消耗 ${estimatedCost} 额度` : '密钥中间不要有空格'}
+              {accountCount
+                ? `共 ${accountCount} 个账号，预计最多消耗 ${estimatedCost} 额度`
+                : "密钥中间不要有空格"}
             </div>
           </div>
-          {submitAlert.msg ? <Alert type={submitAlert.type}>{submitAlert.msg}</Alert> : null}
-          <button className="btn btn-primary" disabled={submitting} onClick={handleSubmit}>
+          {submitAlert.msg ? (
+            <Alert type={submitAlert.type}>{submitAlert.msg}</Alert>
+          ) : null}
+          <button
+            className="btn btn-primary"
+            disabled={submitting}
+            onClick={handleSubmit}
+          >
             <Send size={16} />
-            {submitting ? '提交中...' : '提交任务'}
+            {submitting ? "提交中..." : "提交任务"}
           </button>
         </section>
       </div>
 
       <section className="glass-panel">
         <div className="panel-toolbar">
-          <PanelTitle icon={<Database size={18} />} title="历史任务" description="按卡密与账号关键字组合查询。" />
+          <PanelTitle
+            icon={<Database size={18} />}
+            title="历史任务"
+            description="按卡密与账号关键字组合查询。"
+          />
           <div className="history-actions">
             <div className="history-search">
               <input
@@ -633,15 +737,19 @@ function TaskPanel() {
                 onChange={(event) => setHistoryQuery(event.target.value)}
                 placeholder="输入账号关键字，支持模糊搜索"
               />
-              <button className="btn btn-secondary" disabled={historyLoading || !cardKey.trim()} onClick={() => loadHistory()}>
+              <button
+                className="btn btn-secondary"
+                disabled={historyLoading || !cardKey.trim()}
+                onClick={() => loadHistory()}
+              >
                 <Search size={16} />
-                {historyLoading ? '查询中...' : '查询账号'}
+                {historyLoading ? "查询中..." : "查询账号"}
               </button>
               <button
                 className="btn btn-secondary"
                 disabled={historyLoading || !historyQuery.trim()}
                 onClick={async () => {
-                  setHistoryQuery('');
+                  setHistoryQuery("");
                   await loadHistory();
                 }}
               >
@@ -649,9 +757,13 @@ function TaskPanel() {
                 重置
               </button>
             </div>
-            <button className="btn btn-dark" disabled={exportingAll || !hasExportableHistory} onClick={exportAll}>
+            <button
+              className="btn btn-dark"
+              disabled={exportingAll || !hasExportableHistory}
+              onClick={exportAll}
+            >
               <Download size={16} />
-              {exportingAll ? '导出中...' : '全部导出'}
+              {exportingAll ? "导出中..." : "全部导出"}
             </button>
           </div>
         </div>
@@ -684,12 +796,18 @@ function TaskPanel() {
                       <td>{task.created_at}</td>
                       <td>
                         <div className="operation-cell">
-                          <button className="btn btn-secondary btn-sm" onClick={() => openTask(task.task_id)}>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => openTask(task.task_id)}
+                          >
                             <Eye size={14} />
                             查看
                           </button>
                           {task.success > 0 ? (
-                            <button className="btn btn-dark btn-sm" onClick={() => exportTask(task.task_id)}>
+                            <button
+                              className="btn btn-dark btn-sm"
+                              onClick={() => exportTask(task.task_id)}
+                            >
                               <Download size={14} />
                               导出
                             </button>
@@ -703,19 +821,35 @@ function TaskPanel() {
             </div>
             {totalPages > 1 ? (
               <div className="pagination">
-                <button className="page-btn" disabled={page === 1} onClick={() => setPage(1)}>
+                <button
+                  className="page-btn"
+                  disabled={page === 1}
+                  onClick={() => setPage(1)}
+                >
                   首页
                 </button>
-                <button className="page-btn" disabled={page === 1} onClick={() => setPage(page - 1)}>
+                <button
+                  className="page-btn"
+                  disabled={page === 1}
+                  onClick={() => setPage(page - 1)}
+                >
                   上一页
                 </button>
                 <span>
                   第 {page} / {totalPages} 页
                 </span>
-                <button className="page-btn" disabled={page === totalPages} onClick={() => setPage(page + 1)}>
+                <button
+                  className="page-btn"
+                  disabled={page === totalPages}
+                  onClick={() => setPage(page + 1)}
+                >
                   下一页
                 </button>
-                <button className="page-btn" disabled={page === totalPages} onClick={() => setPage(totalPages)}>
+                <button
+                  className="page-btn"
+                  disabled={page === totalPages}
+                  onClick={() => setPage(totalPages)}
+                >
                   末页
                 </button>
               </div>
@@ -724,10 +858,10 @@ function TaskPanel() {
         ) : (
           <div className="empty-state">
             {historyLoading
-              ? '历史任务查询中...'
+              ? "历史任务查询中..."
               : historyQuery.trim()
-                ? '当前卡密下没有匹配该账号的历史任务'
-                : '当前卡密还没有历史任务'}
+                ? "当前卡密下没有匹配该账号的历史任务"
+                : "当前卡密还没有历史任务"}
           </div>
         )}
       </section>
@@ -760,25 +894,32 @@ function TaskPanel() {
 function AdminPage() {
   const [authStatus, setAuthStatus] = useState<AdminAuthStatus | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [authAlert, setAuthAlert] = useState({ type: '' as AlertType, msg: '' });
+  const [authAlert, setAuthAlert] = useState({
+    type: "" as AlertType,
+    msg: "",
+  });
   const [items, setItems] = useState<AdminCdkMapping[]>([]);
-  const [distributionCdk, setDistributionCdk] = useState('');
-  const [upstreamCdk, setUpstreamCdk] = useState('');
-  const [note, setNote] = useState('');
+  const [distributionCdk, setDistributionCdk] = useState("");
+  const [upstreamCdk, setUpstreamCdk] = useState("");
+  const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [deletingId, setDeletingId] = useState('');
+  const [deletingId, setDeletingId] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
-  const [alert, setAlert] = useState({ type: '' as AlertType, msg: '' });
+  const [alert, setAlert] = useState({ type: "" as AlertType, msg: "" });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const authError = params.get('auth_error');
+    const authError = params.get("auth_error");
     if (authError) {
-      setAuthAlert({ type: 'error', msg: authError });
-      params.delete('auth_error');
+      setAuthAlert({ type: "error", msg: authError });
+      params.delete("auth_error");
       const nextQuery = params.toString();
-      window.history.replaceState({}, '', `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`);
+      window.history.replaceState(
+        {},
+        "",
+        `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}`,
+      );
     }
 
     refreshAuthStatus();
@@ -790,7 +931,7 @@ function AdminPage() {
       const response = await getAdminAuthStatus();
       setAuthStatus(response);
       if (response.authenticated) {
-        setAuthAlert({ type: '', msg: '' });
+        setAuthAlert({ type: "", msg: "" });
         if (loadData) {
           await loadCdks();
         }
@@ -800,7 +941,7 @@ function AdminPage() {
     } catch (error) {
       setAuthStatus(null);
       setItems([]);
-      setAuthAlert({ type: 'error', msg: getErrorMessage(error) });
+      setAuthAlert({ type: "error", msg: getErrorMessage(error) });
     } finally {
       setAuthLoading(false);
     }
@@ -822,17 +963,21 @@ function AdminPage() {
     const message = getErrorMessage(error);
     if (isAuthError(error)) {
       setItems([]);
-      setAlert({ type: '', msg: '' });
-      setAuthAlert({ type: 'error', msg: message });
-      setAuthStatus((current) => (current ? { ...current, authenticated: false, user: null } : current));
+      setAlert({ type: "", msg: "" });
+      setAuthAlert({ type: "error", msg: message });
+      setAuthStatus((current) =>
+        current ? { ...current, authenticated: false, user: null } : current,
+      );
       return;
     }
 
-    setAlert({ type: 'error', msg: message });
+    setAlert({ type: "error", msg: message });
   }
 
   function startAdminLogin() {
-    window.location.href = apiUrl(authStatus?.login_url || '/api/admin/auth/login');
+    window.location.href = apiUrl(
+      authStatus?.login_url || "/api/admin/auth/login",
+    );
   }
 
   async function handleLogout() {
@@ -840,11 +985,13 @@ function AdminPage() {
     try {
       await logoutAdmin();
       setItems([]);
-      setAuthStatus((current) => (current ? { ...current, authenticated: false, user: null } : current));
-      setAlert({ type: '', msg: '' });
-      setAuthAlert({ type: 'info', msg: '已退出 Synapse 管理员授权' });
+      setAuthStatus((current) =>
+        current ? { ...current, authenticated: false, user: null } : current,
+      );
+      setAlert({ type: "", msg: "" });
+      setAuthAlert({ type: "info", msg: "已退出 Synapse 管理员授权" });
     } catch (error) {
-      setAuthAlert({ type: 'error', msg: getErrorMessage(error) });
+      setAuthAlert({ type: "error", msg: getErrorMessage(error) });
     } finally {
       setLoggingOut(false);
     }
@@ -853,23 +1000,23 @@ function AdminPage() {
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!upstreamCdk.trim()) {
-      setAlert({ type: 'error', msg: '请输入上游 CDK' });
+      setAlert({ type: "error", msg: "请输入上游 CDK" });
       return;
     }
 
     setCreating(true);
-    setAlert({ type: '', msg: '' });
+    setAlert({ type: "", msg: "" });
     try {
       const created = await createAdminCdk({
         distribution_cdk: distributionCdk.trim() || undefined,
         upstream_cdk: upstreamCdk.trim(),
-        note: note.trim() || undefined
+        note: note.trim() || undefined,
       });
       setItems((current) => [created, ...current]);
-      setDistributionCdk('');
-      setUpstreamCdk('');
-      setNote('');
-      setAlert({ type: 'success', msg: '分发 CDK 已创建' });
+      setDistributionCdk("");
+      setUpstreamCdk("");
+      setNote("");
+      setAlert({ type: "success", msg: "分发 CDK 已创建" });
     } catch (error) {
       handleProtectedError(error);
     } finally {
@@ -885,23 +1032,30 @@ function AdminPage() {
     setDeletingId(item.id);
     try {
       await deleteAdminCdk(item.id);
-      setItems((current) => current.filter((candidate) => candidate.id !== item.id));
-      setAlert({ type: 'success', msg: '分发 CDK 已删除' });
+      setItems((current) =>
+        current.filter((candidate) => candidate.id !== item.id),
+      );
+      setAlert({ type: "success", msg: "分发 CDK 已删除" });
     } catch (error) {
       handleProtectedError(error);
     } finally {
-      setDeletingId('');
+      setDeletingId("");
     }
   }
 
   async function copyCdk(value: string) {
     await navigator.clipboard.writeText(value);
-    setAlert({ type: 'info', msg: '分发 CDK 已复制' });
+    setAlert({ type: "info", msg: "分发 CDK 已复制" });
   }
 
   const adminUser = authStatus?.user;
-  const adminName = adminUser?.username || adminUser?.name || adminUser?.email || 'Synapse 管理员';
-  const adminMeta = adminUser?.email || adminUser?.id || adminUser?.sub || 'active admin';
+  const adminName =
+    adminUser?.username ||
+    adminUser?.name ||
+    adminUser?.email ||
+    "Synapse 管理员";
+  const adminMeta =
+    adminUser?.email || adminUser?.id || adminUser?.sub || "active admin";
 
   return (
     <section className="page-stack" aria-labelledby="admin-title">
@@ -911,17 +1065,30 @@ function AdminPage() {
         description="仅允许通过 Synapse OAuth 授权且当前仍为 active admin 的管理员访问。"
       />
 
-      {authAlert.msg ? <Alert type={authAlert.type}>{authAlert.msg}</Alert> : null}
+      {authAlert.msg ? (
+        <Alert type={authAlert.type}>{authAlert.msg}</Alert>
+      ) : null}
 
       {authLoading ? (
         <section className="glass-panel auth-panel">
-          <PanelTitle icon={<Shield size={18} />} title="正在校验管理员授权" description="请稍候。" />
+          <PanelTitle
+            icon={<Shield size={18} />}
+            title="正在校验管理员授权"
+            description="请稍候。"
+          />
           <div className="empty-state">授权状态读取中...</div>
         </section>
       ) : !authStatus ? (
         <section className="glass-panel auth-panel">
-          <PanelTitle icon={<Shield size={18} />} title="无法读取授权状态" description="请检查后端服务是否可用。" />
-          <button className="btn btn-secondary" onClick={() => refreshAuthStatus()}>
+          <PanelTitle
+            icon={<Shield size={18} />}
+            title="无法读取授权状态"
+            description="请检查后端服务是否可用。"
+          />
+          <button
+            className="btn btn-secondary"
+            onClick={() => refreshAuthStatus()}
+          >
             <RefreshCcw size={16} />
             重试
           </button>
@@ -958,15 +1125,23 @@ function AdminPage() {
                 <span>{adminMeta}</span>
               </div>
             </div>
-            <button className="btn btn-secondary" disabled={loggingOut} onClick={handleLogout}>
+            <button
+              className="btn btn-secondary"
+              disabled={loggingOut}
+              onClick={handleLogout}
+            >
               <LogOut size={16} />
-              {loggingOut ? '退出中...' : '退出授权'}
+              {loggingOut ? "退出中..." : "退出授权"}
             </button>
           </section>
 
           <div className="admin-grid">
             <section className="glass-panel">
-              <PanelTitle icon={<Plus size={18} />} title="创建分发 CDK" description="留空分发 CDK 时系统会自动生成。" />
+              <PanelTitle
+                icon={<Plus size={18} />}
+                title="创建分发 CDK"
+                description="留空分发 CDK 时系统会自动生成。"
+              />
               <form className="form-stack" onSubmit={handleCreate}>
                 <div className="form-group">
                   <label htmlFor="distribution-cdk">分发 CDK</label>
@@ -995,16 +1170,26 @@ function AdminPage() {
                     placeholder="可选，用于区分来源或客户"
                   />
                 </div>
-                {alert.msg ? <Alert type={alert.type}>{alert.msg}</Alert> : null}
-                <button className="btn btn-primary" disabled={creating} type="submit">
+                {alert.msg ? (
+                  <Alert type={alert.type}>{alert.msg}</Alert>
+                ) : null}
+                <button
+                  className="btn btn-primary"
+                  disabled={creating}
+                  type="submit"
+                >
                   <Plus size={16} />
-                  {creating ? '创建中...' : '创建分发 CDK'}
+                  {creating ? "创建中..." : "创建分发 CDK"}
                 </button>
               </form>
             </section>
 
             <section className="glass-panel info-panel">
-              <PanelTitle icon={<Database size={18} />} title="存储策略" description="MongoDB collection: cdk_mappings" />
+              <PanelTitle
+                icon={<Database size={18} />}
+                title="存储策略"
+                description="MongoDB collection: cdk_mappings"
+              />
               <div className="info-list">
                 <div>
                   <strong>分发 CDK</strong>
@@ -1016,7 +1201,9 @@ function AdminPage() {
                 </div>
                 <div>
                   <strong>代理策略</strong>
-                  <span>请求体中的 card_key 命中分发 CDK 时替换为上游 CDK。</span>
+                  <span>
+                    请求体中的 card_key 命中分发 CDK 时替换为上游 CDK。
+                  </span>
                 </div>
               </div>
             </section>
@@ -1024,10 +1211,18 @@ function AdminPage() {
 
           <section className="glass-panel">
             <div className="panel-toolbar">
-              <PanelTitle icon={<KeyRound size={18} />} title="已创建 CDK" description="删除后该分发 CDK 将无法继续映射上游。" />
-              <button className="btn btn-secondary" disabled={loading} onClick={loadCdks}>
+              <PanelTitle
+                icon={<KeyRound size={18} />}
+                title="已创建 CDK"
+                description="删除后该分发 CDK 将无法继续映射上游。"
+              />
+              <button
+                className="btn btn-secondary"
+                disabled={loading}
+                onClick={loadCdks}
+              >
                 <RefreshCcw size={16} />
-                {loading ? '刷新中...' : '刷新'}
+                {loading ? "刷新中..." : "刷新"}
               </button>
             </div>
             {items.length ? (
@@ -1048,16 +1243,21 @@ function AdminPage() {
                       <tr key={item.id}>
                         <td className="mono">{item.distribution_cdk}</td>
                         <td className="mono">{item.upstream_cdk_masked}</td>
-                        <td>{item.note || '-'}</td>
+                        <td>{item.note || "-"}</td>
                         <td>
-                          <span className={`status-badge ${item.enabled ? 'status-success' : 'status-cancelled'}`}>
-                            {item.enabled ? '启用' : '停用'}
+                          <span
+                            className={`status-badge ${item.enabled ? "status-success" : "status-cancelled"}`}
+                          >
+                            {item.enabled ? "启用" : "停用"}
                           </span>
                         </td>
                         <td>{formatTimestamp(item.created_at)}</td>
                         <td>
                           <div className="operation-cell">
-                            <button className="btn btn-secondary btn-sm" onClick={() => copyCdk(item.distribution_cdk)}>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => copyCdk(item.distribution_cdk)}
+                            >
                               <Copy size={14} />
                               复制
                             </button>
@@ -1067,7 +1267,7 @@ function AdminPage() {
                               onClick={() => handleDelete(item)}
                             >
                               <Trash2 size={14} />
-                              {deletingId === item.id ? '删除中...' : '删除'}
+                              {deletingId === item.id ? "删除中..." : "删除"}
                             </button>
                           </div>
                         </td>
@@ -1077,7 +1277,9 @@ function AdminPage() {
                 </table>
               </div>
             ) : (
-              <div className="empty-state">{loading ? 'CDK 列表加载中...' : '还没有分发 CDK'}</div>
+              <div className="empty-state">
+                {loading ? "CDK 列表加载中..." : "还没有分发 CDK"}
+              </div>
             )}
           </section>
         </>
@@ -1095,7 +1297,7 @@ function TaskDetailModal({
   progress,
   cancellingId,
   onCancelAccount,
-  onClose
+  onClose,
 }: {
   taskId: string;
   detail: TaskDetail | null;
@@ -1121,14 +1323,20 @@ function TaskDetailModal({
             <p className="eyebrow">Task Detail</p>
             <h2 id="task-detail-title">任务详情</h2>
           </div>
-          <button className="icon-btn" onClick={onClose} aria-label="关闭任务详情">
+          <button
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="关闭任务详情"
+          >
             <X size={18} />
           </button>
         </div>
         <div className="modal-body">
           <div className="modal-toolbar">
             <Alert type="info">任务ID: {taskId}</Alert>
-            <div className="hint">任务状态：{detail ? statusLabels[detail.status] : '-'}</div>
+            <div className="hint">
+              任务状态：{detail ? statusLabels[detail.status] : "-"}
+            </div>
           </div>
           {alert.msg ? <Alert type={alert.type}>{alert.msg}</Alert> : null}
           <div className="progress-bar">
@@ -1136,7 +1344,7 @@ function TaskDetailModal({
           </div>
           <div className="hint">
             进度: {completedCount} / {detail?.total_accounts ?? 0} ({progress}%)
-            {cancelledCount ? `，已取消 ${cancelledCount} 个` : ''}
+            {cancelledCount ? `，已取消 ${cancelledCount} 个` : ""}
           </div>
           <div className="table-wrapper">
             {detail?.accounts.length ? (
@@ -1159,33 +1367,42 @@ function TaskDetailModal({
                       <td>
                         <div className="status-meta">
                           <StatusBadge status={account.status} />
-                          {account.status === 'pending' && account.queue_position ? (
-                            <span className="queue-text">第{account.queue_position}位</span>
+                          {account.status === "pending" &&
+                          account.queue_position ? (
+                            <span className="queue-text">
+                              第{account.queue_position}位
+                            </span>
                           ) : null}
                         </div>
                       </td>
-                      <td>{account.message || '-'}</td>
+                      <td>{account.message || "-"}</td>
                       <td>
                         {account.result_link ? (
-                          <a href={account.result_link} target="_blank" rel="noopener noreferrer">
+                          <a
+                            href={account.result_link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
                             {account.result_link}
                           </a>
                         ) : (
-                          '-'
+                          "-"
                         )}
                       </td>
                       <td>
-                        {account.status === 'pending' ? (
+                        {account.status === "pending" ? (
                           <button
                             className="btn btn-danger btn-sm"
                             disabled={cancellingId !== null}
                             onClick={() => onCancelAccount(account)}
                           >
                             <X size={14} />
-                            {cancellingId === account.id ? '取消中...' : '取消排队'}
+                            {cancellingId === account.id
+                              ? "取消中..."
+                              : "取消排队"}
                           </button>
                         ) : (
-                          '-'
+                          "-"
                         )}
                       </td>
                     </tr>
@@ -1205,7 +1422,7 @@ function TaskDetailModal({
 function PaymentWarningModal({
   dismissToday,
   onDismissTodayChange,
-  onClose
+  onClose,
 }: {
   dismissToday: boolean;
   onDismissTodayChange: (value: boolean) => void;
@@ -1225,7 +1442,11 @@ function PaymentWarningModal({
             <p className="eyebrow">Notice</p>
             <h2 id="payment-warning-title">温馨提示</h2>
           </div>
-          <button className="icon-btn" onClick={onClose} aria-label="关闭温馨提示">
+          <button
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="关闭温馨提示"
+          >
             <X size={18} />
           </button>
         </div>
@@ -1234,7 +1455,8 @@ function PaymentWarningModal({
           <strong>没有支付资料</strong>，否则会不成功。
           <br />
           <br />
-          有支付资料请先<strong>删除支付资料</strong>再进行 <strong>提取链接 + 绑卡</strong>。
+          有支付资料请先<strong>删除支付资料</strong>再进行{" "}
+          <strong>提取链接 + 绑卡</strong>。
         </div>
         <label className="checkbox-row">
           <input
@@ -1254,17 +1476,35 @@ function PaymentWarningModal({
   );
 }
 
-function PageHeader({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
+function PageHeader({
+  eyebrow,
+  title,
+  description,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+}) {
   return (
     <header className="page-header">
       <p className="eyebrow">{eyebrow}</p>
-      <h1 id={title.includes('管理') ? 'admin-title' : 'workspace-title'}>{title}</h1>
+      <h1 id={title.includes("管理") ? "admin-title" : "workspace-title"}>
+        {title}
+      </h1>
       <p>{description}</p>
     </header>
   );
 }
 
-function PanelTitle({ icon, title, description }: { icon: ReactNode; title: string; description: string }) {
+function PanelTitle({
+  icon,
+  title,
+  description,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+}) {
   return (
     <div className="panel-title">
       <span className="panel-icon">{icon}</span>
@@ -1286,25 +1526,29 @@ function Metric({ label, value }: { label: ReactNode; value: ReactNode }) {
 }
 
 function Alert({ type, children }: { type: AlertType; children: ReactNode }) {
-  return <div className={`alert alert-${type || 'info'}`}>{children}</div>;
+  return <div className={`alert alert-${type || "info"}`}>{children}</div>;
 }
 
 function StatusBadge({ status }: { status: TaskStatus | AccountStatus }) {
-  return <span className={`status-badge status-${status}`}>{statusLabels[status] || status}</span>;
+  return (
+    <span className={`status-badge status-${status}`}>
+      {statusLabels[status] || status}
+    </span>
+  );
 }
 
 function BackgroundParticles() {
   return (
     <div className="particles" aria-hidden="true">
       {Array.from({ length: 14 }).map((_, index) => (
-        <span key={index} style={{ '--i': index } as CSSProperties} />
+        <span key={index} style={{ "--i": index } as CSSProperties} />
       ))}
     </div>
   );
 }
 
 function routeFromPath(pathname: string): RouteName {
-  return pathname === '/admin' ? 'admin' : 'workspace';
+  return pathname === "/admin" ? "admin" : "workspace";
 }
 
 function normalizeCardInfo(response: VerifyCardResponse): CardInfo {
@@ -1312,25 +1556,25 @@ function normalizeCardInfo(response: VerifyCardResponse): CardInfo {
     remaining: response.remaining_quota ?? response.remaining ?? 0,
     total: response.total_quota ?? response.total_count ?? 0,
     remainingUnits: response.remaining_quota_units ?? response.remaining ?? 0,
-    totalUnits: response.total_quota_units ?? response.total_count ?? 0
+    totalUnits: response.total_quota_units ?? response.total_count ?? 0,
   };
 }
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : '请求失败';
+  return error instanceof Error ? error.message : "请求失败";
 }
 
 function todayString() {
   const now = new Date();
-  const pad = (value: number) => String(value).padStart(2, '0');
+  const pad = (value: number) => String(value).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
 function timestampedFileName(prefix: string) {
   const now = new Date();
-  const pad = (value: number) => String(value).padStart(2, '0');
+  const pad = (value: number) => String(value).padStart(2, "0");
   return `${prefix}_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(
-    now.getMinutes()
+    now.getMinutes(),
   )}${pad(now.getSeconds())}.txt`;
 }
 
@@ -1343,9 +1587,9 @@ function formatTimestamp(value: string) {
 }
 
 function downloadText(text: string, fileName: string) {
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
+  const link = document.createElement("a");
   link.href = url;
   link.download = fileName;
   link.click();
