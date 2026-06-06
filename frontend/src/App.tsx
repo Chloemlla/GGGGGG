@@ -54,6 +54,7 @@ import type {
   CdkUsageLog,
   ServiceType,
   Settings,
+  SynapseAdminUser,
   TaskAccount,
   TaskDetail,
   TaskStatus,
@@ -1046,7 +1047,7 @@ function AdminPage() {
         current ? { ...current, authenticated: false, user: null } : current,
       );
       setAlert({ type: "", msg: "" });
-      setAuthAlert({ type: "info", msg: "已退出 Synapse 管理员授权" });
+      setAuthAlert({ type: "info", msg: "已退出 Synapse 授权" });
     } catch (error) {
       setAuthAlert({ type: "error", msg: getErrorMessage(error) });
     } finally {
@@ -1134,16 +1135,15 @@ function AdminPage() {
     adminUser?.username ||
     adminUser?.name ||
     adminUser?.email ||
-    "Synapse 管理员";
-  const adminMeta =
-    adminUser?.email || adminUser?.id || adminUser?.sub || "active admin";
+    "Synapse 授权用户";
+  const adminMeta = `${synapseRoleLabel(adminUser)} · ${adminUser?.email || adminUser?.id || adminUser?.sub || "active"}`;
 
   return (
     <section className="page-stack" aria-labelledby="admin-title">
       <PageHeader
         eyebrow="Admin Distribution"
         title="分发 CDK 管理"
-        description="仅允许通过 Synapse OAuth 授权且当前仍为 active admin 的管理员访问。"
+        description="仅允许通过 Synapse OAuth 授权且当前仍为 active admin 或 trusted 的用户访问。"
       />
 
       {authAlert.msg ? (
@@ -1154,7 +1154,7 @@ function AdminPage() {
         <section className="glass-panel auth-panel">
           <PanelTitle
             icon={<Shield size={18} />}
-            title="正在校验管理员授权"
+            title="正在校验 Synapse 授权"
             description="请稍候。"
           />
           <div className="empty-state">授权状态读取中...</div>
@@ -1186,7 +1186,7 @@ function AdminPage() {
         <section className="glass-panel auth-panel">
           <PanelTitle
             icon={<Shield size={18} />}
-            title="需要 Synapse 管理员授权"
+            title="需要 Synapse 管理员或信用者授权"
             description="授权通过后才能访问分发 CDK 管理。"
           />
           <button className="btn btn-primary" onClick={startAdminLogin}>
@@ -1925,6 +1925,36 @@ function formatTimestamp(value: string) {
     return new Date(numeric * 1000).toLocaleString();
   }
   return value;
+}
+
+function synapseRoleLabel(user?: SynapseAdminUser | null) {
+  if (!user) {
+    return "授权用户";
+  }
+
+  const roles = user.roles || [];
+  const isAdmin =
+    user.role === "admin" ||
+    roles.includes("admin") ||
+    user.admin === true ||
+    user.isAdmin === true ||
+    user.is_admin === true ||
+    user.synapseAdmin === true ||
+    user.synapse_admin === true;
+  if (isAdmin) {
+    return "管理员";
+  }
+
+  const isTrusted =
+    user.role === "trusted" ||
+    roles.includes("trusted") ||
+    user.isTrusted === true ||
+    user.is_trusted === true;
+  if (isTrusted) {
+    return "信用者";
+  }
+
+  return user.role || "授权用户";
 }
 
 function usageCdkLabel(log: CdkUsageLog) {

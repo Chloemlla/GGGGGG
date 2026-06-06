@@ -35,18 +35,18 @@ pub async fn require_admin(
 ) -> Result<SynapseAdminUser, ApiError> {
     if !state.oauth.enabled() {
         return Err(ApiError::service_unavailable(
-            "Synapse OAuth 未配置，管理员管理不可用",
+            "Synapse OAuth 未配置，后台管理不可用",
         ));
     }
 
     let session_id = session_id_from_headers(headers, &state.oauth.session_cookie_name)
-        .ok_or_else(|| ApiError::unauthorized("请先通过 Synapse 管理员授权登录"))?;
+        .ok_or_else(|| ApiError::unauthorized("请先通过 Synapse 授权登录"))?;
     let mut session = load_session(state, &session_id).await?;
     let now = unix_timestamp();
 
     if session.expires_at <= now {
         delete_session(state, &session.id).await;
-        return Err(ApiError::unauthorized("管理员授权已过期，请重新登录"));
+        return Err(ApiError::unauthorized("Synapse 授权已过期，请重新登录"));
     }
 
     let mut refreshed = false;
@@ -79,10 +79,10 @@ pub async fn require_admin(
         }
     };
 
-    if !user.is_authorized_admin() {
+    if !user.is_authorized_actor() {
         delete_session(state, &session.id).await;
         return Err(ApiError::forbidden(
-            "当前 Synapse 用户不是有效的 active 管理员",
+            "当前 Synapse 用户不是有效的 active admin 或 trusted",
         ));
     }
 
@@ -105,7 +105,7 @@ async fn auth_status(
             authenticated: false,
             configured: false,
             login_url: LOGIN_URL.to_string(),
-            message: Some("Synapse OAuth 未配置，管理员管理不可用".to_string()),
+            message: Some("Synapse OAuth 未配置，后台管理不可用".to_string()),
             user: None,
         })
         .into_response());
@@ -145,7 +145,7 @@ async fn login(State(state): State<AppState>) -> Response {
 async fn login_inner(state: &AppState) -> Result<Response, ApiError> {
     if !state.oauth.enabled() {
         return Err(ApiError::service_unavailable(
-            "Synapse OAuth 未配置，无法发起管理员授权",
+            "Synapse OAuth 未配置，无法发起授权",
         ));
     }
 
@@ -227,10 +227,10 @@ async fn callback_inner(
         None => fetch_userinfo(state, &token.access_token).await?,
     };
 
-    if !user.is_authorized_admin() {
+    if !user.is_authorized_actor() {
         delete_session(state, &session.id).await;
         return Err(ApiError::forbidden(
-            "当前 Synapse 用户不是有效的 active 管理员",
+            "当前 Synapse 用户不是有效的 active admin 或 trusted",
         ));
     }
 
@@ -257,7 +257,7 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
 
     with_set_cookie(
         Json(MessageResponse {
-            message: "已退出管理员授权".to_string(),
+            message: "已退出 Synapse 授权".to_string(),
         })
         .into_response(),
         clear_session_cookie(&state),
@@ -269,7 +269,7 @@ async fn load_session(state: &AppState, session_id: &str) -> Result<AdminSession
         .admin_sessions
         .find_one(doc! { "_id": session_id }, None)
         .await?
-        .ok_or_else(|| ApiError::unauthorized("请先通过 Synapse 管理员授权登录"))
+        .ok_or_else(|| ApiError::unauthorized("请先通过 Synapse 授权登录"))
 }
 
 async fn userinfo_for_session(
@@ -279,7 +279,7 @@ async fn userinfo_for_session(
     let access_token = session
         .access_token
         .as_deref()
-        .ok_or_else(|| ApiError::unauthorized("管理员授权 token 不存在"))?;
+        .ok_or_else(|| ApiError::unauthorized("Synapse 授权 token 不存在"))?;
     fetch_userinfo(state, access_token).await
 }
 
@@ -384,7 +384,7 @@ async fn refresh_admin_session(
     let refresh_token = session
         .refresh_token
         .clone()
-        .ok_or_else(|| ApiError::unauthorized("管理员授权 refresh token 不存在"))?;
+        .ok_or_else(|| ApiError::unauthorized("Synapse 授权 refresh token 不存在"))?;
     let token = exchange_refresh_token(state, &refresh_token).await?;
     apply_token_to_session(state, session, token);
     Ok(())

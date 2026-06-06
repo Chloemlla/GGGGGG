@@ -119,8 +119,14 @@ export interface SynapseAdminUser {
   name?: string;
   avatarUrl?: string;
   role?: string;
+  roles?: string[];
+  admin?: boolean;
   isAdmin?: boolean;
+  is_admin?: boolean;
   synapseAdmin?: boolean;
+  synapse_admin?: boolean;
+  isTrusted?: boolean;
+  is_trusted?: boolean;
   authProvider?: string;
   createdAt?: string;
   accountStatus?: string;

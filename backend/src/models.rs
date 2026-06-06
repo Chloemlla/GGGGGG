@@ -137,10 +137,20 @@ pub struct SynapseAdminUser {
     #[serde(rename = "avatarUrl")]
     pub avatar_url: Option<String>,
     pub role: Option<String>,
+    pub roles: Option<Vec<String>>,
+    pub admin: Option<bool>,
     #[serde(rename = "isAdmin")]
     pub is_admin: Option<bool>,
+    #[serde(rename = "is_admin")]
+    pub is_admin_snake: Option<bool>,
     #[serde(rename = "synapseAdmin")]
     pub synapse_admin: Option<bool>,
+    #[serde(rename = "synapse_admin")]
+    pub synapse_admin_snake: Option<bool>,
+    #[serde(rename = "isTrusted")]
+    pub is_trusted: Option<bool>,
+    #[serde(rename = "is_trusted")]
+    pub is_trusted_snake: Option<bool>,
     #[serde(rename = "authProvider")]
     pub auth_provider: Option<String>,
     #[serde(rename = "createdAt")]
@@ -153,11 +163,32 @@ pub struct SynapseAdminUser {
 }
 
 impl SynapseAdminUser {
-    pub fn is_authorized_admin(&self) -> bool {
-        self.role.as_deref() == Some("admin")
-            && self.is_admin == Some(true)
-            && self.synapse_admin == Some(true)
-            && self.account_status.as_deref() == Some("active")
+    pub fn is_authorized_actor(&self) -> bool {
+        self.account_status.as_deref() == Some("active")
+            && (self.is_admin_identity() || self.is_trusted_identity())
+    }
+
+    fn is_admin_identity(&self) -> bool {
+        self.has_role("admin")
+            || self.admin == Some(true)
+            || self.is_admin == Some(true)
+            || self.is_admin_snake == Some(true)
+            || self.synapse_admin == Some(true)
+            || self.synapse_admin_snake == Some(true)
+    }
+
+    fn is_trusted_identity(&self) -> bool {
+        self.has_role("trusted") || self.is_trusted == Some(true) || self.is_trusted_snake == Some(true)
+    }
+
+    fn has_role(&self, expected: &str) -> bool {
+        self.role.as_deref() == Some(expected)
+            || self
+                .roles
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .any(|role| role == expected)
     }
 }
 
@@ -192,4 +223,61 @@ pub struct OAuthTokenResponse {
 pub struct OAuthErrorResponse {
     pub error: Option<String>,
     pub error_description: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::SynapseAdminUser;
+
+    #[test]
+    fn authorizes_active_admin_with_camel_and_snake_identity_fields() {
+        let user: SynapseAdminUser = serde_json::from_value(json!({
+            "role": "admin",
+            "roles": ["admin"],
+            "isAdmin": true,
+            "is_admin": true,
+            "admin": true,
+            "synapseAdmin": true,
+            "synapse_admin": true,
+            "isTrusted": false,
+            "is_trusted": false,
+            "accountStatus": "active"
+        }))
+        .expect("deserialize admin user");
+
+        assert!(user.is_authorized_actor());
+    }
+
+    #[test]
+    fn authorizes_active_trusted_user() {
+        let user: SynapseAdminUser = serde_json::from_value(json!({
+            "role": "trusted",
+            "roles": ["trusted"],
+            "isAdmin": false,
+            "is_admin": false,
+            "synapseAdmin": false,
+            "synapse_admin": false,
+            "isTrusted": true,
+            "is_trusted": true,
+            "accountStatus": "active"
+        }))
+        .expect("deserialize trusted user");
+
+        assert!(user.is_authorized_actor());
+    }
+
+    #[test]
+    fn rejects_inactive_privileged_user() {
+        let user: SynapseAdminUser = serde_json::from_value(json!({
+            "role": "admin",
+            "isAdmin": true,
+            "synapseAdmin": true,
+            "accountStatus": "disabled"
+        }))
+        .expect("deserialize inactive user");
+
+        assert!(!user.is_authorized_actor());
+    }
 }
