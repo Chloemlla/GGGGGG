@@ -625,7 +625,6 @@ function TaskPanel() {
       <PageHeader
         eyebrow="Discount Link Console"
         title="自助提取优惠链接系统"
-        description="输入上游 CDK 或管理员分发 CDK，后端会统一代理到 pixel.yh-mo.xyz 并保持任务状态可追踪。"
       />
 
       <div className="workspace-grid">
@@ -1454,13 +1453,18 @@ function AdminPage() {
                         </td>
                         <td>{log.account_count ?? "-"}</td>
                         <td>
-                          <span className={`status-badge ${httpStatusClass(log.response_status)}`}>
+                          <span
+                            className={`status-badge ${httpStatusClass(log.response_status)}`}
+                          >
                             {log.response_status ?? "错误"}
                           </span>
                         </td>
                         <td>{log.duration_ms}ms</td>
                         <td>
-                          <button className="btn btn-secondary btn-sm" onClick={() => openUsageLog(log)}>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => openUsageLog(log)}
+                          >
                             <Eye size={14} />
                             详情
                           </button>
@@ -1515,7 +1519,11 @@ function CdkUsageDetailModal({
             <p className="eyebrow">CDK Trace</p>
             <h2 id="cdk-usage-title">使用溯源详情</h2>
           </div>
-          <button className="icon-btn" onClick={onClose} aria-label="关闭使用溯源详情">
+          <button
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="关闭使用溯源详情"
+          >
             <X size={18} />
           </button>
         </div>
@@ -1523,11 +1531,19 @@ function CdkUsageDetailModal({
           {loading ? <Alert type="info">详情同步中...</Alert> : null}
 
           <section>
-            <PanelTitle icon={<FileSearch size={18} />} title="请求链路" description={log.request_id} />
+            <PanelTitle
+              icon={<FileSearch size={18} />}
+              title="请求链路"
+              description={log.request_id}
+            />
             <div className="detail-grid">
-              <DetailItem label="时间">{formatTimestamp(log.created_at)}</DetailItem>
+              <DetailItem label="时间">
+                {formatTimestamp(log.created_at)}
+              </DetailItem>
               <DetailItem label="CDK">{usageCdkLabel(log)}</DetailItem>
-              <DetailItem label="映射状态">{log.matched_mapping ? "命中分发 CDK" : "未命中映射"}</DetailItem>
+              <DetailItem label="映射状态">
+                {log.matched_mapping ? "命中分发 CDK" : "未命中映射"}
+              </DetailItem>
               <DetailItem label="映射 ID">{log.mapping_id || "-"}</DetailItem>
               <DetailItem label="备注">{log.cdk_note || "-"}</DetailItem>
               <DetailItem label="耗时">{log.duration_ms}ms</DetailItem>
@@ -1535,23 +1551,37 @@ function CdkUsageDetailModal({
           </section>
 
           <section>
-            <PanelTitle icon={<Monitor size={18} />} title="浏览器上下文" description={log.client_ip || "-"} />
+            <PanelTitle
+              icon={<Monitor size={18} />}
+              title="浏览器上下文"
+              description={log.client_ip || "-"}
+            />
             <div className="detail-grid">
               <DetailItem label="客户端 IP">{log.client_ip || "-"}</DetailItem>
               <DetailItem label="转发链">{log.forwarded_for || "-"}</DetailItem>
               <DetailItem label="Origin">{log.origin || "-"}</DetailItem>
               <DetailItem label="Referer">{log.referer || "-"}</DetailItem>
               <DetailItem label="语言">{log.accept_language || "-"}</DetailItem>
-              <DetailItem label="User-Agent">{log.user_agent || "-"}</DetailItem>
+              <DetailItem label="User-Agent">
+                {log.user_agent || "-"}
+              </DetailItem>
             </div>
           </section>
 
           <section>
-            <PanelTitle icon={<Send size={18} />} title="请求摘要" description={`${log.request_method} ${fullPath}`} />
+            <PanelTitle
+              icon={<Send size={18} />}
+              title="请求摘要"
+              description={`${log.request_method} ${fullPath}`}
+            />
             <div className="detail-grid">
-              <DetailItem label="服务类型">{log.service_type || "-"}</DetailItem>
+              <DetailItem label="服务类型">
+                {log.service_type || "-"}
+              </DetailItem>
               <DetailItem label="账号数">{log.account_count ?? "-"}</DetailItem>
-              <DetailItem label="请求体大小">{formatBytes(log.request_body_bytes)}</DetailItem>
+              <DetailItem label="请求体大小">
+                {formatBytes(log.request_body_bytes)}
+              </DetailItem>
             </div>
             <pre className="detail-pre">{log.request_summary || "-"}</pre>
           </section>
@@ -1560,12 +1590,17 @@ function CdkUsageDetailModal({
             <PanelTitle
               icon={<Database size={18} />}
               title="上游响应"
-              description={log.response_status ? String(log.response_status) : "请求失败"}
+              description={
+                log.response_status ? String(log.response_status) : "请求失败"
+              }
             />
             <div className="detail-grid">
-              <DetailItem label="状态码">{log.response_status ?? "-"}</DetailItem>
+              <DetailItem label="状态码">
+                {log.response_status ?? "-"}
+              </DetailItem>
               <DetailItem label="响应大小">
-                {log.response_body_bytes === null || log.response_body_bytes === undefined
+                {log.response_body_bytes === null ||
+                log.response_body_bytes === undefined
                   ? "-"
                   : formatBytes(log.response_body_bytes)}
               </DetailItem>
@@ -1579,7 +1614,13 @@ function CdkUsageDetailModal({
   );
 }
 
-function DetailItem({ label, children }: { label: string; children: ReactNode }) {
+function DetailItem({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
     <div className="detail-item">
       <span>{label}</span>
