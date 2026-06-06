@@ -132,5 +132,6 @@ export interface AdminAuthStatus {
   authenticated: boolean;
   configured: boolean;
   login_url: string;
+  message?: string | null;
   user?: SynapseAdminUser | null;
 }

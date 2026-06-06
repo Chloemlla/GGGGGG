@@ -955,6 +955,12 @@ function AdminPage() {
       } else {
         setItems([]);
         setUsageLogs([]);
+        if (response.message) {
+          setAuthAlert({
+            type: response.configured ? "error" : "info",
+            msg: response.message,
+          });
+        }
       }
     } catch (error) {
       setAuthStatus(null);

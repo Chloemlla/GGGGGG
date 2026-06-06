@@ -51,18 +51,24 @@ pub async fn require_admin(
 
     let mut refreshed = false;
     if should_refresh_access_token(&session, now) {
-        refresh_admin_session(state, &mut session)
-            .await
-            .map_err(|_| ApiError::unauthorized("管理员授权已过期或已失效，请重新登录"))?;
+        if let Err(error) = refresh_admin_session(state, &mut session).await {
+            if is_auth_failure(&error) {
+                delete_session(state, &session.id).await;
+            }
+            return Err(error);
+        }
         refreshed = true;
     }
 
     let user = match userinfo_for_session(state, &mut session).await {
         Ok(user) => user,
         Err(error) if can_retry_with_refresh(&error, refreshed, &session) => {
-            refresh_admin_session(state, &mut session)
-                .await
-                .map_err(|_| ApiError::unauthorized("管理员授权已过期或已失效，请重新登录"))?;
+            if let Err(refresh_error) = refresh_admin_session(state, &mut session).await {
+                if is_auth_failure(&refresh_error) {
+                    delete_session(state, &session.id).await;
+                }
+                return Err(refresh_error);
+            }
             userinfo_for_session(state, &mut session).await?
         }
         Err(error) => {
@@ -299,6 +305,10 @@ async fn fetch_userinfo(
         return Err(oauth_status_error(status, &text));
     }
 
+    if looks_like_oauth_error(&text) {
+        return Err(oauth_status_error(StatusCode::UNAUTHORIZED, &text));
+    }
+
     serde_json::from_str::<SynapseAdminUser>(&text)
         .map_err(|error| ApiError::upstream(format!("Synapse userinfo 响应格式无效: {error}")))
 }
@@ -357,6 +367,10 @@ async fn exchange_token(
 
     if !status.is_success() {
         return Err(oauth_status_error(status, &text));
+    }
+
+    if looks_like_oauth_error(&text) {
+        return Err(oauth_status_error(StatusCode::UNAUTHORIZED, &text));
     }
 
     serde_json::from_str::<OAuthTokenResponse>(&text)
@@ -424,8 +438,12 @@ fn form_body(params: &[(&str, &str)]) -> String {
 }
 
 fn oauth_status_error(status: StatusCode, text: &str) -> ApiError {
-    let detail = serde_json::from_str::<OAuthErrorResponse>(text)
-        .ok()
+    let parsed_error = serde_json::from_str::<OAuthErrorResponse>(text).ok();
+    let error_code = parsed_error
+        .as_ref()
+        .and_then(|error| error.error.as_deref())
+        .map(ToOwned::to_owned);
+    let detail = parsed_error
         .and_then(|error| error.error_description.or(error.error))
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| {
@@ -436,14 +454,34 @@ fn oauth_status_error(status: StatusCode, text: &str) -> ApiError {
             }
         });
 
-    if matches!(
-        status,
-        StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
-    ) {
+    if is_oauth_session_rejection(status, error_code.as_deref(), &detail) {
         ApiError::unauthorized(detail)
     } else {
         ApiError::upstream(format!("Synapse OAuth 请求失败: {detail}"))
     }
+}
+
+fn looks_like_oauth_error(text: &str) -> bool {
+    serde_json::from_str::<OAuthErrorResponse>(text)
+        .ok()
+        .and_then(|error| error.error)
+        .is_some()
+}
+
+fn is_oauth_session_rejection(status: StatusCode, error_code: Option<&str>, detail: &str) -> bool {
+    let code = error_code.unwrap_or_default();
+    let detail = detail.to_ascii_lowercase();
+
+    matches!(
+        code,
+        "invalid_token" | "invalid_grant" | "access_denied" | "insufficient_scope"
+    ) || matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
+        || (status == StatusCode::BAD_REQUEST
+            && (detail.contains("invalid_token")
+                || detail.contains("invalid_grant")
+                || detail.contains("access_denied")
+                || detail.contains("revoked")
+                || detail.contains("expired")))
 }
 
 fn can_retry_with_refresh(error: &ApiError, refreshed: bool, session: &AdminSession) -> bool {
@@ -526,4 +564,28 @@ fn unix_timestamp() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::StatusCode;
+
+    use super::{is_auth_failure, oauth_status_error};
+
+    #[test]
+    fn treats_oauth_invalid_token_as_auth_failure() {
+        let error = oauth_status_error(
+            StatusCode::BAD_GATEWAY,
+            r#"{"error":"invalid_token","error_description":"token revoked"}"#,
+        );
+
+        assert!(is_auth_failure(&error));
+    }
+
+    #[test]
+    fn keeps_provider_outage_as_upstream_error() {
+        let error = oauth_status_error(StatusCode::BAD_GATEWAY, "upstream timeout");
+
+        assert_eq!(error.status(), StatusCode::BAD_GATEWAY);
+    }
 }
