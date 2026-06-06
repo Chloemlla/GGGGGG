@@ -182,13 +182,15 @@ impl SynapseAdminUser {
     }
 
     fn has_role(&self, expected: &str) -> bool {
-        self.role.as_deref() == Some(expected)
+        self.role
+            .as_deref()
+            .is_some_and(|role| role.eq_ignore_ascii_case(expected))
             || self
                 .roles
                 .as_deref()
                 .unwrap_or_default()
                 .iter()
-                .any(|role| role == expected)
+                .any(|role| role.eq_ignore_ascii_case(expected))
     }
 }
 
