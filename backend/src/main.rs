@@ -144,10 +144,8 @@ async fn main() {
         )
         .init();
 
-    let mongo_uri =
-        env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
-    let mongo_database =
-        env::var("MONGODB_DATABASE").unwrap_or_else(|_| "pixel_remake".to_string());
+    let mongo_uri = config_value("MONGODB_URI", "mongodb://localhost:27017");
+    let mongo_database = config_value("MONGODB_DATABASE", "pixel_remake");
     let mongo = MongoClient::with_uri_str(&mongo_uri)
         .await
         .expect("connect MongoDB");
@@ -180,8 +178,7 @@ async fn main() {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let addr = env::var("BIND_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:8080".to_string())
+    let addr = config_value("BIND_ADDR", "0.0.0.0:8080")
         .parse::<SocketAddr>()
         .expect("parse BIND_ADDR");
     println!("pixel-api listening on http://{addr}");
@@ -196,8 +193,8 @@ async fn main() {
 }
 
 fn frontend_dist_dir() -> String {
-    if let Ok(value) = env::var("FRONTEND_DIST_DIR") {
-        return value;
+    if env::var("FRONTEND_DIST_DIR").is_ok() {
+        return config_value("FRONTEND_DIST_DIR", "frontend/dist");
     }
 
     if FsPath::new("frontend/dist/index.html").exists() {
@@ -205,6 +202,24 @@ fn frontend_dist_dir() -> String {
     } else {
         "../frontend/dist".to_string()
     }
+}
+
+fn config_value(name: &str, default: &str) -> String {
+    env::var(name)
+        .map(|value| strip_wrapping_quotes(value.trim()).to_string())
+        .unwrap_or_else(|_| default.to_string())
+}
+
+fn strip_wrapping_quotes(value: &str) -> &str {
+    value
+        .strip_prefix('\'')
+        .and_then(|inner| inner.strip_suffix('\''))
+        .or_else(|| {
+            value
+                .strip_prefix('"')
+                .and_then(|inner| inner.strip_suffix('"'))
+        })
+        .unwrap_or(value)
 }
 
 async fn ensure_indexes(collection: &Collection<CdkMapping>) -> Result<(), mongodb::error::Error> {
@@ -459,4 +474,33 @@ fn is_hop_by_hop_header(name: &str) -> bool {
             | "host"
             | "content-length"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_wrapping_quotes;
+
+    #[test]
+    fn strips_matching_wrapping_quotes() {
+        assert_eq!(
+            strip_wrapping_quotes("'mongodb://localhost:27017'"),
+            "mongodb://localhost:27017"
+        );
+        assert_eq!(
+            strip_wrapping_quotes("\"mongodb://localhost:27017\""),
+            "mongodb://localhost:27017"
+        );
+    }
+
+    #[test]
+    fn keeps_unwrapped_or_unmatched_values() {
+        assert_eq!(
+            strip_wrapping_quotes("mongodb://localhost:27017"),
+            "mongodb://localhost:27017"
+        );
+        assert_eq!(
+            strip_wrapping_quotes("'mongodb://localhost:27017"),
+            "'mongodb://localhost:27017"
+        );
+    }
 }
