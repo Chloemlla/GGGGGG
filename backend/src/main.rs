@@ -1,4 +1,4 @@
-use std::{env, net::SocketAddr, path::Path};
+use std::{env, net::SocketAddr, path::Path as FsPath};
 
 use axum::{
     Json, Router,
@@ -200,7 +200,7 @@ fn frontend_dist_dir() -> String {
         return value;
     }
 
-    if Path::new("frontend/dist/index.html").exists() {
+    if FsPath::new("frontend/dist/index.html").exists() {
         "frontend/dist".to_string()
     } else {
         "../frontend/dist".to_string()
