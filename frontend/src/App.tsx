@@ -1824,7 +1824,7 @@ function PageHeader({
 }: {
   eyebrow: string;
   title: string;
-  description: string;
+  description?: string;
 }) {
   return (
     <header className="page-header">
@@ -1832,7 +1832,7 @@ function PageHeader({
       <h1 id={title.includes("管理") ? "admin-title" : "workspace-title"}>
         {title}
       </h1>
-      <p>{description}</p>
+      {description ? <p>{description}</p> : null}
     </header>
   );
 }
