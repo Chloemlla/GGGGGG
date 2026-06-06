@@ -1,10 +1,13 @@
 use std::env;
 
-use axum::Router;
+use axum::{
+    Router,
+    http::{Method, header},
+};
 use mongodb::Client as MongoClient;
 use reqwest::Client as HttpClient;
 use tower_http::{
-    cors::{AllowOrigin, Any, CorsLayer},
+    cors::{AllowOrigin, CorsLayer},
     services::{ServeDir, ServeFile},
     trace::TraceLayer,
 };
@@ -64,8 +67,20 @@ async fn main() {
         .layer(
             CorsLayer::new()
                 .allow_origin(AllowOrigin::mirror_request())
-                .allow_methods(Any)
-                .allow_headers(Any)
+                .allow_methods([
+                    Method::GET,
+                    Method::POST,
+                    Method::PUT,
+                    Method::PATCH,
+                    Method::DELETE,
+                    Method::OPTIONS,
+                ])
+                .allow_headers([
+                    header::ACCEPT,
+                    header::AUTHORIZATION,
+                    header::CONTENT_TYPE,
+                    header::HeaderName::from_static("x-requested-with"),
+                ])
                 .allow_credentials(true),
         )
         .layer(TraceLayer::new_for_http())
