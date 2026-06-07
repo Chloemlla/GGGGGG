@@ -43,12 +43,14 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 button,
 input,
 textarea {
   font: inherit;
+  min-width: 0;
 }
 
 button {
@@ -67,7 +69,7 @@ a:hover {
 .app-frame {
   position: relative;
   min-height: 100vh;
-  overflow: hidden;
+  overflow-x: hidden;
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 54%, #eef2ff 100%);
 }
 
@@ -234,6 +236,7 @@ a:hover {
 .brand-link {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 0.625rem;
   color: var(--slate-900);
   font-size: 1.25rem;
@@ -255,6 +258,7 @@ a:hover {
 .nav-actions {
   display: flex;
   align-items: center;
+  min-width: 0;
   gap: 0.5rem;
 }
 
@@ -268,6 +272,7 @@ a:hover {
   color: var(--slate-600);
   font-size: 0.875rem;
   font-weight: 700;
+  white-space: nowrap;
   transition:
     background 160ms ease,
     color 160ms ease,
@@ -343,13 +348,14 @@ a:hover {
   font-size: 0.6875rem;
   font-weight: 800;
   letter-spacing: 0.26em;
+  overflow-wrap: anywhere;
   text-transform: uppercase;
 }
 
 .page-header h1 {
   margin: 0;
   color: var(--slate-900);
-  font-size: clamp(2rem, 5vw, 3.6rem);
+  font-size: 3.4rem;
   line-height: 1.08;
   font-weight: 750;
   letter-spacing: 0;
@@ -361,6 +367,7 @@ a:hover {
   color: var(--slate-600);
   font-size: 1rem;
   line-height: 1.75;
+  overflow-wrap: anywhere;
 }
 
 .workspace-grid,
@@ -438,6 +445,10 @@ a:hover {
   margin-bottom: 1rem;
 }
 
+.panel-title > div {
+  min-width: 0;
+}
+
 .panel-toolbar .panel-title {
   margin-bottom: 0;
 }
@@ -460,6 +471,7 @@ a:hover {
   color: var(--slate-900);
   font-size: 1.05rem;
   letter-spacing: 0;
+  overflow-wrap: anywhere;
 }
 
 .panel-title p {
@@ -467,6 +479,7 @@ a:hover {
   color: var(--slate-500);
   font-size: 0.875rem;
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .form-stack,
@@ -541,13 +554,23 @@ textarea:focus {
   padding: 0 1rem;
   font-size: 0.875rem;
   font-weight: 800;
+  max-width: 100%;
   text-decoration: none;
+  text-align: center;
   transition:
     background 160ms ease,
     border-color 160ms ease,
     color 160ms ease,
     opacity 160ms ease,
     transform 160ms ease;
+}
+
+.btn svg,
+.page-btn svg,
+.icon-btn svg,
+.nav-button svg,
+.brand-mark svg {
+  flex: 0 0 auto;
 }
 
 .btn-sm {
@@ -630,6 +653,7 @@ button:disabled,
   color: var(--slate-700);
   font-size: 0.875rem;
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .alert-success {
@@ -687,6 +711,7 @@ button:disabled,
 .service-option {
   display: grid;
   gap: 0.5rem;
+  min-width: 0;
   min-height: 122px;
   border: 1px solid var(--slate-200);
   border-radius: 22px;
@@ -694,6 +719,7 @@ button:disabled,
   color: var(--slate-700);
   padding: 1rem;
   text-align: left;
+  overflow-wrap: anywhere;
 }
 
 .service-option.selected {
@@ -733,6 +759,7 @@ button:disabled,
 
 .history-search {
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .history-search input {
@@ -769,6 +796,7 @@ button:disabled,
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-inline: contain;
 }
 
 table {
@@ -874,6 +902,7 @@ td a {
   margin-top: 1rem;
   padding: 2rem;
   text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .info-panel {
@@ -963,6 +992,11 @@ td a {
   margin: 0;
   color: var(--slate-900);
   font-size: 1.5rem;
+  overflow-wrap: anywhere;
+}
+
+.modal-header > div {
+  min-width: 0;
 }
 
 .modal-body {
@@ -1040,6 +1074,7 @@ td a {
   padding: 1rem;
   color: #92400e;
   line-height: 1.85;
+  overflow-wrap: anywhere;
 }
 
 .warning-box strong {
@@ -1065,6 +1100,10 @@ td a {
 }
 
 @media (max-width: 900px) {
+  .page-header h1 {
+    font-size: 2.55rem;
+  }
+
   .workspace-grid,
   .admin-grid {
     grid-template-columns: 1fr;
@@ -1083,7 +1122,23 @@ td a {
 }
 
 @media (max-width: 640px) {
+  body {
+    min-height: 100dvh;
+  }
+
+  .particles span:nth-child(n + 9) {
+    display: none;
+  }
+
+  .app-nav {
+    height: auto;
+    min-height: 64px;
+  }
+
   .nav-inner {
+    height: auto;
+    min-height: 64px;
+    gap: 0.75rem;
     padding: 0 0.75rem;
   }
 
@@ -1091,7 +1146,13 @@ td a {
     display: none;
   }
 
+  .nav-actions {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+  }
+
   .nav-button {
+    flex: 0 1 auto;
     min-width: 44px;
     padding: 0 0.75rem;
   }
@@ -1100,25 +1161,98 @@ td a {
     padding: 1rem 0.75rem 2rem;
   }
 
+  .page-stack {
+    gap: 1rem;
+  }
+
+  .page-header h1 {
+    font-size: 1.95rem;
+    line-height: 1.16;
+  }
+
+  .page-header p {
+    margin-top: 0.75rem;
+    font-size: 0.9375rem;
+    line-height: 1.65;
+  }
+
+  .eyebrow {
+    margin-bottom: 0.5rem;
+    letter-spacing: 0.16em;
+    line-height: 1.45;
+  }
+
   .glass-panel {
     border-radius: 22px;
     padding: 1rem;
   }
 
+  .panel-title {
+    gap: 0.625rem;
+    margin-bottom: 0.875rem;
+  }
+
+  .panel-icon {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 16px;
+  }
+
+  .panel-title h2 {
+    font-size: 1rem;
+  }
+
+  .panel-title p {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+
   .inline-form,
+  .history-actions,
   .history-search,
+  .usage-search,
   .operation-cell,
   .right-actions {
     align-items: stretch;
     flex-direction: column;
+    width: 100%;
   }
 
   .inline-form .btn,
+  .panel-toolbar > .btn,
+  .auth-panel > .btn,
+  .form-stack .btn,
+  .glass-panel > .btn,
+  .admin-auth-bar > .btn,
   .history-search input,
   .history-search .btn,
+  .usage-search .limit-input,
   .operation-cell .btn,
   .right-actions .btn {
     width: 100%;
+  }
+
+  input {
+    min-height: 46px;
+  }
+
+  input,
+  textarea {
+    border-radius: 14px;
+  }
+
+  textarea {
+    min-height: 150px;
+  }
+
+  .btn,
+  .page-btn {
+    min-height: 46px;
+    padding: 0 0.875rem;
+  }
+
+  .btn-sm {
+    min-height: 40px;
   }
 
   .service-grid,
@@ -1127,9 +1261,112 @@ td a {
     grid-template-columns: 1fr;
   }
 
+  .service-option {
+    min-height: auto;
+    border-radius: 18px;
+    gap: 0.35rem;
+    padding: 0.875rem;
+  }
+
+  .metric {
+    border-radius: 18px;
+    padding: 0.875rem;
+  }
+
+  .metric strong {
+    font-size: 1.5rem;
+  }
+
+  .admin-auth-user {
+    align-items: flex-start;
+    width: 100%;
+  }
+
+  .table-wrapper {
+    border: 1px solid var(--slate-200);
+    border-radius: 18px;
+    background: white;
+  }
+
+  table {
+    min-width: 700px;
+  }
+
+  th,
+  td {
+    padding: 0.75rem 0.625rem;
+    font-size: 0.8125rem;
+  }
+
   .pagination {
-    flex-wrap: wrap;
-    justify-content: flex-start;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+    gap: 0.5rem;
+  }
+
+  .pagination span {
+    grid-column: 1 / -1;
+    order: -1;
+    text-align: center;
+  }
+
+  .pagination .page-btn {
+    width: 100%;
+  }
+
+  .modal-overlay {
+    align-items: flex-end;
+    padding: calc(0.75rem + env(safe-area-inset-top)) calc(0.75rem + env(safe-area-inset-right))
+      calc(0.75rem + env(safe-area-inset-bottom)) calc(0.75rem + env(safe-area-inset-left));
+  }
+
+  .modal-content,
+  .wide-modal,
+  .compact-modal {
+    width: 100%;
+  }
+
+  .modal-content {
+    max-height: calc(100dvh - 1.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    border-radius: 20px 20px 0 0;
+    padding: 1rem;
+  }
+
+  .modal-header h2 {
+    font-size: 1.25rem;
+    line-height: 1.2;
+  }
+
+  .modal-toolbar .alert {
+    width: 100%;
+  }
+
+  .detail-pre {
+    max-height: 220px;
+    padding: 0.875rem;
+    font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 380px) {
+  .nav-button {
+    gap: 0.35rem;
+    padding: 0 0.55rem;
+    font-size: 0.8125rem;
+  }
+
+  .app-main {
+    padding-inline: 0.625rem;
+  }
+
+  .glass-panel {
+    border-radius: 18px;
+    padding: 0.875rem;
+  }
+
+  .page-header h1 {
+    font-size: 1.7rem;
   }
 }
 
