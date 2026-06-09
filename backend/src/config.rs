@@ -6,22 +6,26 @@ const DEFAULT_SYNAPSE_OAUTH_BASE_URL: &str = "https://tts.chloemlla.com";
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub bind_addr: String,
+    pub cors_allowed_origins: Vec<String>,
     pub frontend_dir: String,
     pub mongo_database: String,
     pub mongo_uri: String,
     pub oauth: OAuthConfig,
     pub upstream_base_url: String,
+    pub usage_log_ttl_seconds: u64,
 }
 
 impl AppConfig {
     pub fn from_env() -> Self {
         Self {
             bind_addr: bind_addr(),
+            cors_allowed_origins: config_csv("CORS_ALLOWED_ORIGINS"),
             frontend_dir: frontend_dist_dir(),
             mongo_database: config_value("MONGODB_DATABASE", "pixel_remake"),
             mongo_uri: config_value("MONGODB_URI", "mongodb://localhost:27017"),
             oauth: OAuthConfig::from_env(),
             upstream_base_url: config_value("UPSTREAM_BASE_URL", DEFAULT_UPSTREAM_BASE_URL),
+            usage_log_ttl_seconds: config_u64("CDK_USAGE_LOG_TTL_SECONDS", 2_592_000),
         }
     }
 }
@@ -36,6 +40,7 @@ pub struct OAuthConfig {
     pub scopes: String,
     pub session_cookie_name: String,
     pub session_ttl_seconds: i64,
+    pub token_encryption_key: String,
 }
 
 impl OAuthConfig {
@@ -52,6 +57,7 @@ impl OAuthConfig {
             ),
             session_cookie_name: config_value("ADMIN_SESSION_COOKIE", "synapse_admin_session"),
             session_ttl_seconds: config_i64("ADMIN_SESSION_TTL_SECONDS", 2_592_000),
+            token_encryption_key: config_value("ADMIN_TOKEN_ENCRYPTION_KEY", ""),
         }
     }
 
@@ -85,6 +91,14 @@ impl OAuthConfig {
         self.endpoint("/api/oauth/token")
     }
 
+    pub fn token_encryption_secret(&self) -> &str {
+        if self.token_encryption_key.is_empty() {
+            &self.client_secret
+        } else {
+            &self.token_encryption_key
+        }
+    }
+
     pub fn userinfo_endpoint(&self) -> String {
         self.endpoint("/api/oauth/userinfo")
     }
@@ -116,6 +130,25 @@ fn config_i64(name: &str, default: i64) -> i64 {
     config_value(name, &default.to_string())
         .parse::<i64>()
         .unwrap_or(default)
+}
+
+fn config_u64(name: &str, default: u64) -> u64 {
+    config_value(name, &default.to_string())
+        .parse::<u64>()
+        .unwrap_or(default)
+}
+
+fn config_csv(name: &str) -> Vec<String> {
+    parse_csv(&config_value(name, ""))
+}
+
+fn parse_csv(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
 }
 
 fn bind_addr() -> String {
@@ -160,7 +193,7 @@ fn strip_wrapping_quotes(value: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{OAuthConfig, normalize_bind_addr, strip_wrapping_quotes};
+    use super::{OAuthConfig, normalize_bind_addr, parse_csv, strip_wrapping_quotes};
 
     #[test]
     fn strips_matching_wrapping_quotes() {
@@ -225,6 +258,21 @@ mod tests {
         assert!(config.cookie_secure());
     }
 
+    #[test]
+    fn uses_oauth_secret_as_default_token_encryption_secret() {
+        let config = oauth_config("https://gemini.chloemlla.com", "");
+
+        assert_eq!(config.token_encryption_secret(), "syn_secret_test");
+    }
+
+    #[test]
+    fn parses_comma_separated_origins() {
+        assert_eq!(
+            parse_csv("https://a.example, https://b.example ,,"),
+            vec!["https://a.example", "https://b.example"]
+        );
+    }
+
     fn oauth_config(app_base_url: &str, redirect_uri_override: &str) -> OAuthConfig {
         OAuthConfig {
             app_base_url: app_base_url.to_string(),
@@ -235,6 +283,7 @@ mod tests {
             scopes: "openid profile admin:identity".to_string(),
             session_cookie_name: "synapse_admin_session".to_string(),
             session_ttl_seconds: 2_592_000,
+            token_encryption_key: String::new(),
         }
     }
 }

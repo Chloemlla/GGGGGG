@@ -1,3 +1,7 @@
+use aes_gcm::{
+    Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit},
+};
 use axum::{
     Json, Router,
     extract::{Query, State},
@@ -5,7 +9,9 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
-use mongodb::bson::doc;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use mongodb::bson::{DateTime as BsonDateTime, doc};
+use sha2::{Digest, Sha256};
 use url::{Url, form_urlencoded};
 use uuid::Uuid;
 
@@ -45,7 +51,7 @@ pub async fn require_admin(
     let now = unix_timestamp();
 
     if session.expires_at <= now {
-        delete_session(state, &session.id).await;
+        delete_stored_session(state, &session.id).await;
         return Err(ApiError::unauthorized("Synapse 授权已过期，请重新登录"));
     }
 
@@ -53,7 +59,7 @@ pub async fn require_admin(
     if should_refresh_access_token(&session, now) {
         if let Err(error) = refresh_admin_session(state, &mut session).await {
             if is_auth_failure(&error) {
-                delete_session(state, &session.id).await;
+                delete_stored_session(state, &session.id).await;
             }
             return Err(error);
         }
@@ -65,7 +71,7 @@ pub async fn require_admin(
         Err(error) if can_retry_with_refresh(&error, refreshed, &session) => {
             if let Err(refresh_error) = refresh_admin_session(state, &mut session).await {
                 if is_auth_failure(&refresh_error) {
-                    delete_session(state, &session.id).await;
+                    delete_stored_session(state, &session.id).await;
                 }
                 return Err(refresh_error);
             }
@@ -73,14 +79,14 @@ pub async fn require_admin(
         }
         Err(error) => {
             if is_auth_failure(&error) {
-                delete_session(state, &session.id).await;
+                delete_stored_session(state, &session.id).await;
             }
             return Err(error);
         }
     };
 
     if !user.is_authorized_actor() {
-        delete_session(state, &session.id).await;
+        delete_stored_session(state, &session.id).await;
         return Err(ApiError::forbidden(
             "当前 Synapse 用户不是有效的 active admin 或 trusted",
         ));
@@ -153,14 +159,15 @@ async fn login_inner(state: &AppState) -> Result<Response, ApiError> {
     let session_id = Uuid::new_v4().simple().to_string();
     let oauth_state = Uuid::new_v4().simple().to_string();
     let session = AdminSession {
-        id: session_id.clone(),
+        id: session_storage_id(&session_id),
         oauth_state: oauth_state.clone(),
-        access_token: None,
-        refresh_token: None,
+        access_token_encrypted: None,
+        refresh_token_encrypted: None,
         scope: None,
         user: None,
         access_expires_at: None,
         expires_at: now + PENDING_SESSION_TTL_SECONDS,
+        expires_at_date: Some(bson_from_unix_seconds(now + PENDING_SESSION_TTL_SECONDS)),
         created_at: now,
         updated_at: now,
     };
@@ -212,12 +219,12 @@ async fn callback_inner(
     let mut session = load_session(state, &session_id).await?;
 
     if session.oauth_state != returned_state {
-        delete_session(state, &session.id).await;
+        delete_stored_session(state, &session.id).await;
         return Err(ApiError::forbidden("OAuth state 校验失败"));
     }
 
     if session.expires_at <= unix_timestamp() {
-        delete_session(state, &session.id).await;
+        delete_stored_session(state, &session.id).await;
         return Err(ApiError::unauthorized("OAuth 登录会话已过期"));
     }
 
@@ -228,13 +235,13 @@ async fn callback_inner(
     };
 
     if !user.is_authorized_actor() {
-        delete_session(state, &session.id).await;
+        delete_stored_session(state, &session.id).await;
         return Err(ApiError::forbidden(
             "当前 Synapse 用户不是有效的 active admin 或 trusted",
         ));
     }
 
-    apply_token_to_session(state, &mut session, token);
+    apply_token_to_session(state, &mut session, token)?;
     session.user = Some(user);
     session.updated_at = unix_timestamp();
     state
@@ -246,13 +253,13 @@ async fn callback_inner(
     let response = Redirect::to("/admin").into_response();
     Ok(with_set_cookie(
         response,
-        session_cookie(state, &session.id, max_age),
+        session_cookie(state, &session_id, max_age),
     ))
 }
 
 async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Some(session_id) = session_id_from_headers(&headers, &state.oauth.session_cookie_name) {
-        delete_session(&state, &session_id).await;
+        delete_session_by_cookie_id(&state, &session_id).await;
     }
 
     with_set_cookie(
@@ -267,7 +274,7 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
 async fn load_session(state: &AppState, session_id: &str) -> Result<AdminSession, ApiError> {
     state
         .admin_sessions
-        .find_one(doc! { "_id": session_id }, None)
+        .find_one(doc! { "_id": session_storage_id(session_id) }, None)
         .await?
         .ok_or_else(|| ApiError::unauthorized("请先通过 Synapse 授权登录"))
 }
@@ -277,10 +284,11 @@ async fn userinfo_for_session(
     session: &mut AdminSession,
 ) -> Result<SynapseAdminUser, ApiError> {
     let access_token = session
-        .access_token
+        .access_token_encrypted
         .as_deref()
         .ok_or_else(|| ApiError::unauthorized("Synapse 授权 token 不存在"))?;
-    fetch_userinfo(state, access_token).await
+    let access_token = decrypt_token(state, access_token)?;
+    fetch_userinfo(state, &access_token).await
 }
 
 async fn fetch_userinfo(
@@ -382,15 +390,20 @@ async fn refresh_admin_session(
     session: &mut AdminSession,
 ) -> Result<(), ApiError> {
     let refresh_token = session
-        .refresh_token
-        .clone()
+        .refresh_token_encrypted
+        .as_deref()
         .ok_or_else(|| ApiError::unauthorized("Synapse 授权 refresh token 不存在"))?;
+    let refresh_token = decrypt_token(state, refresh_token)?;
     let token = exchange_refresh_token(state, &refresh_token).await?;
-    apply_token_to_session(state, session, token);
+    apply_token_to_session(state, session, token)?;
     Ok(())
 }
 
-fn apply_token_to_session(state: &AppState, session: &mut AdminSession, token: OAuthTokenResponse) {
+fn apply_token_to_session(
+    state: &AppState,
+    session: &mut AdminSession,
+    token: OAuthTokenResponse,
+) -> Result<(), ApiError> {
     let now = unix_timestamp();
     let access_ttl = token.expires_in.unwrap_or(7_200).max(60);
     let session_ttl = token
@@ -400,9 +413,9 @@ fn apply_token_to_session(state: &AppState, session: &mut AdminSession, token: O
         .min(state.oauth.session_ttl_seconds)
         .max(60);
 
-    session.access_token = Some(token.access_token);
+    session.access_token_encrypted = Some(encrypt_token(state, &token.access_token)?);
     if let Some(refresh_token) = token.refresh_token {
-        session.refresh_token = Some(refresh_token);
+        session.refresh_token_encrypted = Some(encrypt_token(state, &refresh_token)?);
     }
     if let Some(scope) = token.scope {
         session.scope = Some(scope);
@@ -412,7 +425,9 @@ fn apply_token_to_session(state: &AppState, session: &mut AdminSession, token: O
     }
     session.access_expires_at = Some(now + access_ttl);
     session.expires_at = now + session_ttl;
+    session.expires_at_date = Some(bson_from_unix_seconds(session.expires_at));
     session.updated_at = now;
+    Ok(())
 }
 
 fn authorization_url(state: &AppState, oauth_state: &str) -> Result<String, ApiError> {
@@ -485,11 +500,11 @@ fn is_oauth_session_rejection(status: StatusCode, error_code: Option<&str>, deta
 }
 
 fn can_retry_with_refresh(error: &ApiError, refreshed: bool, session: &AdminSession) -> bool {
-    !refreshed && session.refresh_token.is_some() && is_auth_failure(error)
+    !refreshed && session.refresh_token_encrypted.is_some() && is_auth_failure(error)
 }
 
 fn should_refresh_access_token(session: &AdminSession, now: i64) -> bool {
-    session.access_token.is_none() || session.access_expires_at.unwrap_or(0) <= now + 30
+    session.access_token_encrypted.is_none() || session.access_expires_at.unwrap_or(0) <= now + 30
 }
 
 fn is_auth_failure(error: &ApiError) -> bool {
@@ -499,11 +514,21 @@ fn is_auth_failure(error: &ApiError) -> bool {
     )
 }
 
-async fn delete_session(state: &AppState, session_id: &str) {
+async fn delete_session_by_cookie_id(state: &AppState, session_id: &str) {
+    delete_stored_session(state, &session_storage_id(session_id)).await;
+}
+
+async fn delete_stored_session(state: &AppState, storage_id: &str) {
     let _ = state
         .admin_sessions
-        .delete_one(doc! { "_id": session_id }, None)
+        .delete_one(doc! { "_id": storage_id }, None)
         .await;
+}
+
+fn session_storage_id(session_id: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(session_id.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 fn session_id_from_headers(headers: &HeaderMap, cookie_name: &str) -> Option<String> {
@@ -517,7 +542,7 @@ fn session_id_from_headers(headers: &HeaderMap, cookie_name: &str) -> Option<Str
 
 fn session_cookie(state: &AppState, session_id: &str, max_age: i64) -> String {
     let mut cookie = format!(
-        "{}={}; Path=/; Max-Age={}; HttpOnly; SameSite=Lax",
+        "{}={}; Path=/api/admin; Max-Age={}; HttpOnly; SameSite=Lax",
         state.oauth.session_cookie_name,
         session_id,
         max_age.max(0)
@@ -530,13 +555,84 @@ fn session_cookie(state: &AppState, session_id: &str, max_age: i64) -> String {
 
 fn clear_session_cookie(state: &AppState) -> String {
     let mut cookie = format!(
-        "{}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax",
+        "{}=; Path=/api/admin; Max-Age=0; HttpOnly; SameSite=Lax",
         state.oauth.session_cookie_name
     );
     if state.oauth.cookie_secure() {
         cookie.push_str("; Secure");
     }
     cookie
+}
+
+fn encrypt_token(state: &AppState, value: &str) -> Result<String, ApiError> {
+    let cipher = token_cipher(state)?;
+    let nonce_bytes = random_nonce();
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let ciphertext = cipher
+        .encrypt(nonce, value.as_bytes())
+        .map_err(|_| ApiError::service_unavailable("Synapse token 加密失败，请检查后台加密配置"))?;
+
+    Ok(format!(
+        "v1:{}:{}",
+        STANDARD.encode(nonce_bytes),
+        STANDARD.encode(ciphertext)
+    ))
+}
+
+fn decrypt_token(state: &AppState, value: &str) -> Result<String, ApiError> {
+    let Some(encoded) = value.strip_prefix("v1:") else {
+        return Err(ApiError::unauthorized("Synapse 授权 token 存储格式无效"));
+    };
+    let (nonce, ciphertext) = encoded
+        .split_once(':')
+        .ok_or_else(|| ApiError::unauthorized("Synapse 授权 token 存储格式无效"))?;
+    let nonce = STANDARD
+        .decode(nonce)
+        .map_err(|_| ApiError::unauthorized("Synapse 授权 token nonce 无效"))?;
+    if nonce.len() != 12 {
+        return Err(ApiError::unauthorized("Synapse 授权 token nonce 长度无效"));
+    }
+    let ciphertext = STANDARD
+        .decode(ciphertext)
+        .map_err(|_| ApiError::unauthorized("Synapse 授权 token 密文无效"))?;
+
+    let cipher = token_cipher(state)?;
+    let plaintext = cipher
+        .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
+        .map_err(|_| ApiError::unauthorized("Synapse 授权 token 解密失败，请重新登录"))?;
+
+    String::from_utf8(plaintext)
+        .map_err(|_| ApiError::unauthorized("Synapse 授权 token 内容无效，请重新登录"))
+}
+
+fn token_cipher(state: &AppState) -> Result<Aes256Gcm, ApiError> {
+    let secret = state.oauth.token_encryption_secret();
+    if secret.trim().is_empty() {
+        return Err(ApiError::service_unavailable(
+            "后台 token 加密密钥未配置，无法保存授权会话",
+        ));
+    }
+
+    Aes256Gcm::new_from_slice(&token_key(secret))
+        .map_err(|_| ApiError::service_unavailable("后台 token 加密密钥无效"))
+}
+
+fn token_key(secret: &str) -> [u8; 32] {
+    let digest = Sha256::digest(secret.as_bytes());
+    let mut key = [0_u8; 32];
+    key.copy_from_slice(&digest);
+    key
+}
+
+fn random_nonce() -> [u8; 12] {
+    let uuid = Uuid::new_v4();
+    let mut nonce = [0_u8; 12];
+    nonce.copy_from_slice(&uuid.as_bytes()[..12]);
+    nonce
+}
+
+fn bson_from_unix_seconds(value: i64) -> BsonDateTime {
+    BsonDateTime::from_millis(value.saturating_mul(1000))
 }
 
 fn with_set_cookie(mut response: Response, cookie: String) -> Response {

@@ -9,6 +9,8 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  DEPLOY_SCRIPT_COMMIT: d8023efa37e5da37786642ed734b229fde3173bb
+  DEPLOY_SCRIPT_SHA256: 89a4876e3952db2c01c49fd76cbbf43ce90df023f21f7a48a619f7eeced12977
 
 permissions:
   contents: read
@@ -47,6 +49,11 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Lint backend
+        run: cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings
 
       - name: Build backend
         run: cargo build --manifest-path backend/Cargo.toml --release
@@ -147,7 +154,8 @@ jobs:
         if: steps.deploy_config.outputs.enabled == 'true'
         run: |
           mkdir -p scripts
-          curl -fsSL https://raw.githubusercontent.com/Chloemlla/Happy-TTS/refs/heads/main/scripts/deploy_image.js -o scripts/deploy_image.js
+          curl -fsSL "https://raw.githubusercontent.com/Chloemlla/Happy-TTS/${DEPLOY_SCRIPT_COMMIT}/scripts/deploy_image.js" -o scripts/deploy_image.js
+          echo "${DEPLOY_SCRIPT_SHA256}  scripts/deploy_image.js" | sha256sum -c -
           chmod +x scripts/deploy_image.js
 
       - name: Run deployment script

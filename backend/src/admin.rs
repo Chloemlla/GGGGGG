@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
@@ -15,8 +17,8 @@ use uuid::Uuid;
 use crate::{
     error::{ApiError, ApiResult},
     models::{
-        CdkListResponse, CdkMapping, CdkMappingResponse, CdkUsageListResponse, CdkUsageLog,
-        CdkUsageLogResponse, CdkUsageQuery, CreateCdkRequest, MessageResponse,
+        AdminSession, CdkListResponse, CdkMapping, CdkMappingResponse, CdkUsageListResponse,
+        CdkUsageLog, CdkUsageLogResponse, CdkUsageQuery, CreateCdkRequest, MessageResponse,
     },
     oauth,
     state::AppState,
@@ -32,7 +34,9 @@ pub fn router() -> Router<AppState> {
 
 pub async fn ensure_indexes(
     mappings: &Collection<CdkMapping>,
+    admin_sessions: &Collection<AdminSession>,
     usage_logs: &Collection<CdkUsageLog>,
+    usage_log_ttl_seconds: u64,
 ) -> Result<(), mongodb::error::Error> {
     let options = IndexOptions::builder().unique(true).build();
     let index = IndexModel::builder()
@@ -53,6 +57,26 @@ pub async fn ensure_indexes(
 
     let usage_request_index = IndexModel::builder().keys(doc! { "request_id": 1 }).build();
     usage_logs.create_index(usage_request_index, None).await?;
+
+    let usage_ttl_index = IndexModel::builder()
+        .keys(doc! { "created_at_date": 1 })
+        .options(
+            IndexOptions::builder()
+                .expire_after(Duration::from_secs(usage_log_ttl_seconds))
+                .build(),
+        )
+        .build();
+    usage_logs.create_index(usage_ttl_index, None).await?;
+
+    let session_ttl_index = IndexModel::builder()
+        .keys(doc! { "expires_at_date": 1 })
+        .options(
+            IndexOptions::builder()
+                .expire_after(Duration::from_secs(0))
+                .build(),
+        )
+        .build();
+    admin_sessions.create_index(session_ttl_index, None).await?;
 
     Ok(())
 }

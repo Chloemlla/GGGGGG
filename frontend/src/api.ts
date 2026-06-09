@@ -36,8 +36,9 @@ function resolveApiBase() {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const credentials = path.startsWith('/api/admin') ? 'include' : 'omit';
   const response = await fetch(`${API_BASE}${path}`, {
-    credentials: 'include',
+    credentials,
     headers: {
       'Content-Type': 'application/json',
       ...init.headers

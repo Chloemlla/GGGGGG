@@ -2,11 +2,11 @@ use axum::{
     Router,
     body::Bytes,
     extract::{OriginalUri, State},
-    http::{HeaderMap, Method, StatusCode, header},
+    http::{HeaderMap, HeaderName, Method, StatusCode, header},
     response::{IntoResponse, Response},
     routing::any,
 };
-use mongodb::bson::{doc, oid::ObjectId};
+use mongodb::bson::{DateTime as BsonDateTime, doc, oid::ObjectId};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -55,9 +55,10 @@ async fn proxy_api_inner(
     let mut request = state.http.request(upstream_method, upstream_url);
 
     for (name, value) in headers.iter() {
-        if is_hop_by_hop_header(name.as_str()) {
+        if !is_forwarded_request_header(name) {
             continue;
         }
+
         request = request.header(name.as_str(), value.as_bytes());
     }
 
@@ -175,6 +176,7 @@ async fn rewrite_card_key(
             request_summary,
             started_ms: unix_millis(),
             created_at: timestamp(),
+            created_at_date: bson_now(),
         })
     } else {
         Some(PendingUsageAudit {
@@ -200,6 +202,7 @@ async fn rewrite_card_key(
             request_summary,
             started_ms: unix_millis(),
             created_at: timestamp(),
+            created_at_date: bson_now(),
         })
     };
 
@@ -238,6 +241,7 @@ async fn write_usage_log(state: &AppState, audit: PendingUsageAudit, response: U
         error: response.error,
         duration_ms: unix_millis().saturating_sub(audit.started_ms),
         created_at: audit.created_at,
+        created_at_date: Some(audit.created_at_date),
     };
 
     let _ = state.usage_logs.insert_one(log, None).await;
@@ -270,6 +274,7 @@ struct PendingUsageAudit {
     request_summary: Option<String>,
     started_ms: i64,
     created_at: String,
+    created_at_date: BsonDateTime,
 }
 
 struct UsageResponseAudit {
@@ -359,15 +364,30 @@ fn redact_value(value: &Value) -> Value {
 }
 
 fn is_sensitive_key(key: &str) -> bool {
-    key.contains("password")
-        || key.contains("passwd")
+    key.contains("account")
+        || key.contains("address")
+        || key.contains("authorization")
+        || key.contains("auxiliary")
+        || key.contains("cookie")
+        || key.contains("cdk")
+        || key.contains("email")
+        || key.contains("link")
+        || key.contains("mail")
+        || key.contains("mobile")
+        || key.contains("name")
+        || key.contains("phone")
+        || key.contains("recovery")
+        || key.contains("result")
         || key.contains("secret")
         || key.contains("token")
-        || key.contains("cookie")
-        || key.contains("authorization")
+        || key.contains("totp")
+        || key.contains("url")
+        || key.contains("user")
+        || key.contains("2fa")
+        || key.contains("password")
+        || key.contains("passwd")
         || key.ends_with("_key")
         || key.ends_with("key")
-        || key.contains("cdk")
 }
 
 async fn upstream_response(
@@ -383,7 +403,7 @@ async fn upstream_response(
         .map(ToOwned::to_owned);
 
     for (name, value) in response.headers().iter() {
-        if is_hop_by_hop_header(name.as_str()) {
+        if !is_forwarded_response_header(name) {
             continue;
         }
 
@@ -415,10 +435,10 @@ fn summarize_response_body(bytes: &Bytes, content_type: Option<&str>) -> Option<
     }
 
     let content_type = content_type.unwrap_or_default().to_ascii_lowercase();
-    if content_type.contains("json") {
-        if let Ok(value) = serde_json::from_slice::<Value>(bytes) {
-            return summarize_json_body(&value);
-        }
+    if content_type.contains("json")
+        && let Ok(value) = serde_json::from_slice::<Value>(bytes)
+    {
+        return summarize_json_body(&value);
     }
 
     if content_type.contains("text")
@@ -426,7 +446,10 @@ fn summarize_response_body(bytes: &Bytes, content_type: Option<&str>) -> Option<
         || content_type.contains("xml")
         || content_type.contains("html")
     {
-        return Some(truncate(String::from_utf8_lossy(bytes).to_string()));
+        return Some(format!(
+            "<redacted textual response, {} bytes>",
+            bytes.len()
+        ));
     }
 
     Some(format!("<{} bytes binary response>", bytes.len()))
@@ -475,18 +498,27 @@ fn unix_millis() -> i64 {
         .as_millis() as i64
 }
 
-fn is_hop_by_hop_header(name: &str) -> bool {
+fn bson_now() -> BsonDateTime {
+    BsonDateTime::now()
+}
+
+fn is_forwarded_request_header(name: &HeaderName) -> bool {
     matches!(
-        name.to_ascii_lowercase().as_str(),
-        "connection"
-            | "keep-alive"
-            | "proxy-authenticate"
-            | "proxy-authorization"
-            | "te"
-            | "trailer"
-            | "transfer-encoding"
-            | "upgrade"
-            | "host"
-            | "content-length"
+        name.as_str(),
+        "accept" | "accept-language" | "content-type" | "user-agent" | "x-requested-with"
+    )
+}
+
+fn is_forwarded_response_header(name: &HeaderName) -> bool {
+    matches!(
+        name.as_str(),
+        "cache-control"
+            | "content-disposition"
+            | "content-language"
+            | "content-type"
+            | "etag"
+            | "expires"
+            | "last-modified"
+            | "vary"
     )
 }

@@ -1,4 +1,4 @@
-use mongodb::bson::oid::ObjectId;
+use mongodb::bson::{DateTime as BsonDateTime, oid::ObjectId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +65,8 @@ pub struct CdkUsageLog {
     pub error: Option<String>,
     pub duration_ms: i64,
     pub created_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at_date: Option<BsonDateTime>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,12 +120,16 @@ pub struct AdminSession {
     #[serde(rename = "_id")]
     pub id: String,
     pub oauth_state: String,
-    pub access_token: Option<String>,
-    pub refresh_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token_encrypted: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token_encrypted: Option<String>,
     pub scope: Option<String>,
     pub user: Option<SynapseAdminUser>,
     pub access_expires_at: Option<i64>,
     pub expires_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at_date: Option<BsonDateTime>,
     pub created_at: i64,
     pub updated_at: i64,
 }

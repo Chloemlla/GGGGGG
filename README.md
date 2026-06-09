@@ -36,6 +36,7 @@ Backend environment variables:
 ```powershell
 $env:MONGODB_URI='mongodb://localhost:27017'
 $env:MONGODB_DATABASE='pixel_remake'
+$env:UPSTREAM_BASE_URL='https://pixel.yh-mo.xyz'
 ```
 
 The backend proxies user `/api/...` requests to:
@@ -96,8 +97,15 @@ $env:BIND_ADDR='0.0.0.0:8080'
 $env:FRONTEND_DIST_DIR='/app/public'
 $env:MONGODB_URI='mongodb://mongo:27017'
 $env:MONGODB_DATABASE='pixel_remake'
+$env:UPSTREAM_BASE_URL='https://pixel.yh-mo.xyz'
+$env:APP_BASE_URL='https://your-production-domain.example'
+$env:CORS_ALLOWED_ORIGINS=''
+$env:ADMIN_TOKEN_ENCRYPTION_KEY='replace-with-a-long-random-secret'
+$env:CDK_USAGE_LOG_TTL_SECONDS='2592000'
 ```
 
 The container starts only the Rust backend. It serves the frontend static files and handles `/api/...` from the same origin, so the frontend API base is detected automatically from `window.location.origin`.
+
+`CORS_ALLOWED_ORIGINS` is intentionally blank for same-origin production deployments. Set it to a comma-separated list only when a separate trusted frontend origin must call the API with credentials.
 
 No license file has been added yet because the repository owner has not selected a license.

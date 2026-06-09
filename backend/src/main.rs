@@ -2,7 +2,7 @@ use std::env;
 
 use axum::{
     Router,
-    http::{Method, header},
+    http::{HeaderValue, Method, header},
 };
 use mongodb::Client as MongoClient;
 use reqwest::Client as HttpClient;
@@ -46,9 +46,14 @@ async fn main() {
         .database(&config.mongo_database)
         .collection::<CdkUsageLog>("cdk_usage_logs");
 
-    admin::ensure_indexes(&mappings, &usage_logs)
-        .await
-        .expect("create MongoDB indexes");
+    admin::ensure_indexes(
+        &mappings,
+        &admin_sessions,
+        &usage_logs,
+        config.usage_log_ttl_seconds,
+    )
+    .await
+    .expect("create MongoDB indexes");
 
     let state = AppState {
         admin_sessions,
@@ -68,27 +73,13 @@ async fn main() {
         .nest("/api/admin", oauth::router().merge(admin::router()))
         .merge(proxy::router())
         .fallback_service(frontend_assets)
-        .layer(
-            CorsLayer::new()
-                .allow_origin(AllowOrigin::mirror_request())
-                .allow_methods([
-                    Method::GET,
-                    Method::POST,
-                    Method::PUT,
-                    Method::PATCH,
-                    Method::DELETE,
-                    Method::OPTIONS,
-                ])
-                .allow_headers([
-                    header::ACCEPT,
-                    header::AUTHORIZATION,
-                    header::CONTENT_TYPE,
-                    header::HeaderName::from_static("x-requested-with"),
-                ])
-                .allow_credentials(true),
-        )
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+        .layer(TraceLayer::new_for_http());
+    let app = if config.cors_allowed_origins.is_empty() {
+        app
+    } else {
+        app.layer(cors_layer(&config.cors_allowed_origins))
+    }
+    .with_state(state);
 
     println!("serving frontend from: {frontend_dir}");
     println!(
@@ -103,6 +94,14 @@ async fn main() {
         "Synapse OAuth admin auth configured: {}",
         config.oauth.enabled()
     );
+    println!(
+        "credentialed CORS allowed origins: {}",
+        if config.cors_allowed_origins.is_empty() {
+            "(disabled)".to_string()
+        } else {
+            config.cors_allowed_origins.join(", ")
+        }
+    );
 
     let listener = tokio::net::TcpListener::bind(&config.bind_addr)
         .await
@@ -112,4 +111,32 @@ async fn main() {
         .unwrap_or_else(|error| panic!("read bound API address: {error}"));
     println!("pixel-api listening on http://{addr}");
     axum::serve(listener, app).await.expect("run API server");
+}
+
+fn cors_layer(allowed_origins: &[String]) -> CorsLayer {
+    let origins = allowed_origins
+        .iter()
+        .map(|origin| {
+            HeaderValue::from_str(origin)
+                .unwrap_or_else(|_| panic!("invalid CORS_ALLOWED_ORIGINS entry: {origin}"))
+        })
+        .collect::<Vec<_>>();
+
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(origins))
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([
+            header::ACCEPT,
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::HeaderName::from_static("x-requested-with"),
+        ])
+        .allow_credentials(true)
 }
