@@ -189,7 +189,7 @@ function App() {
         {route === "admin" ? <AdminPage /> : <TaskPanel />}
       </main>
       <footer className="app-footer">
-        <span>Gemini 自助提取优惠链接系统</span>
+        <span>自助兑换 Gemini 会员系统</span>
       </footer>
     </div>
   );
@@ -625,7 +625,7 @@ function TaskPanel() {
     <section className="page-stack" aria-labelledby="workspace-title">
       <PageHeader
         eyebrow="Discount Link Console"
-        title="自助提取优惠链接系统"
+        title="自助兑换 Gemini 会员系统"
       />
 
       <div className="workspace-grid">
