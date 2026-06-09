@@ -64,6 +64,8 @@ import type {
 
 const PAGE_SIZE = 10;
 const PAYMENT_WARNING_KEY = "payment_warning_dismissed_date";
+const OPERATION_GUIDE_URL =
+  "https://my.feishu.cn/wiki/KR7hwOFmmiIq0bk7vb4cQZ7MnJb?from=from_copylink";
 const FINAL_TASK_STATUSES = new Set<TaskStatus>([
   "completed",
   "failed",
@@ -1769,37 +1771,78 @@ function PaymentWarningModal({
   onDismissTodayChange: (value: boolean) => void;
   onClose: () => void;
 }) {
+  const [guideOpened, setGuideOpened] = useState(false);
+  const [confirmedGuide, setConfirmedGuide] = useState(false);
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay payment-warning-overlay">
       <div
-        className="modal-content compact-modal"
+        className="modal-content payment-warning-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="payment-warning-title"
+        aria-describedby="payment-warning-description"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="modal-header">
+        <div className="payment-warning-hero">
+          <span className="payment-warning-icon">
+            <Shield size={28} />
+          </span>
           <div>
-            <p className="eyebrow">Notice</p>
+            <p className="eyebrow">Action Guide</p>
             <h2 id="payment-warning-title">温馨提示</h2>
+            <p id="payment-warning-description">
+              操作前请先阅读并严格按照飞书文档执行。未按文档流程操作导致失败、扣费、账号异常或其他后果，本平台不承担责任。
+            </p>
           </div>
-          <button
-            className="icon-btn"
-            onClick={onClose}
-            aria-label="关闭温馨提示"
-          >
-            <X size={18} />
-          </button>
         </div>
-        <div className="warning-box">
-          如果需要用 <strong>提取链接 + 绑卡</strong>，请先确保账号
-          <strong>没有支付资料</strong>，否则会不成功。
-          <br />
-          <br />
-          有支付资料请先<strong>删除支付资料</strong>再进行{" "}
-          <strong>提取链接 + 绑卡</strong>。
+
+        <a
+          className="guide-link-panel"
+          href={OPERATION_GUIDE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => setGuideOpened(true)}
+        >
+          <span className="guide-link-icon">
+            <FileSearch size={22} />
+          </span>
+          <span>
+            <strong>查看飞书操作文档</strong>
+            <small>{OPERATION_GUIDE_URL}</small>
+          </span>
+        </a>
+
+        <div className="warning-box payment-warning-box">
+          <p>
+            使用 <strong>提取链接 + 绑卡</strong> 前，必须确认账号
+            <strong>没有支付资料</strong>。
+          </p>
+          <p>
+            如账号已有支付资料，请先按文档删除支付资料，再继续进行{" "}
+            <strong>提取链接 + 绑卡</strong>。
+          </p>
+          <p>
+            所有操作以飞书文档为准，未按文档操作产生的一切后果自行承担。
+          </p>
         </div>
-        <label className="checkbox-row">
+
+        <label className="checkbox-row confirm-row">
+          <input
+            type="checkbox"
+            disabled={!guideOpened}
+            checked={confirmedGuide}
+            onChange={(event) => setConfirmedGuide(event.target.checked)}
+          />
+          我已阅读飞书文档，并承诺严格按照文档流程操作。
+        </label>
+        {!guideOpened ? (
+          <p className="payment-warning-hint">
+            请先打开飞书操作文档，再勾选确认继续。
+          </p>
+        ) : null}
+
+        <label className="checkbox-row dismiss-row">
           <input
             type="checkbox"
             checked={dismissToday}
@@ -1807,9 +1850,15 @@ function PaymentWarningModal({
           />
           今天不再弹出
         </label>
-        <div className="right-actions">
-          <button className="btn btn-primary" onClick={onClose}>
-            关闭
+
+        <div className="right-actions payment-warning-actions">
+          <button
+            className="btn btn-primary"
+            disabled={!guideOpened || !confirmedGuide}
+            onClick={onClose}
+          >
+            <Check size={16} />
+            已阅读，继续使用
           </button>
         </div>
       </div>
