@@ -23,16 +23,19 @@ FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --create-home appuser
 
 WORKDIR /app
 
-COPY --from=backend-builder /app/backend/target/release/pixel-api /app/pixel-api
-COPY --from=frontend-builder /app/frontend/dist /app/public
+COPY --chown=appuser:appuser --from=backend-builder /app/backend/target/release/pixel-api /app/pixel-api
+COPY --chown=appuser:appuser --from=frontend-builder /app/frontend/dist /app/public
 
 ENV BIND_ADDR=0.0.0.0:8080
 ENV FRONTEND_DIST_DIR=/app/public
 ENV MONGODB_DATABASE=pixel_remake
+
+USER appuser
 
 EXPOSE 8080
 

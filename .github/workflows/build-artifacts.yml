@@ -9,7 +9,6 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  DEPLOY_SCRIPT_REF: main
 
 permissions:
   contents: read
@@ -147,14 +146,7 @@ jobs:
 
       - name: Install deployment dependencies
         if: steps.deploy_config.outputs.enabled == 'true'
-        run: npm install --no-save --no-package-lock ssh2 dotenv axios form-data
-
-      - name: Download deployment script
-        if: steps.deploy_config.outputs.enabled == 'true'
-        run: |
-          mkdir -p scripts
-          curl -fsSL "https://raw.githubusercontent.com/Chloemlla/Happy-TTS/${DEPLOY_SCRIPT_REF}/scripts/deploy_image.js" -o scripts/deploy_image.js
-          chmod +x scripts/deploy_image.js
+        run: npm install --no-save --no-package-lock ssh2@1.16.0 dotenv@16.4.5 axios@1.7.9 form-data@4.0.1
 
       - name: Run deployment script
         if: steps.deploy_config.outputs.enabled == 'true'
@@ -166,4 +158,4 @@ jobs:
           CONTAINER_NAMES: ${{ secrets.CONTAINER_NAMES }}
           IMAGE_URL: ${{ needs['publish-image'].outputs.deploy_image }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-        run: node scripts/deploy_image.js
+        run: node .github/scripts/deploy_image.js

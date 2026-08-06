@@ -53,6 +53,22 @@ Admin CDK endpoints are local backend endpoints:
 
 When a request body contains `card_key`, the backend checks MongoDB for a matching distribution CDK and forwards the corresponding upstream CDK to `https://pixel.yh-mo.xyz`.
 
+## Admin Runtime Configuration
+
+The admin page (`/admin`) can override runtime environment variables without redeploying. Overrides are persisted in the MongoDB `app_configs` collection (`{key, value_encrypted, updated_at}`); values are AES-GCM-encrypted with `ADMIN_TOKEN_ENCRYPTION_KEY` and masked in the UI.
+
+Admin config endpoints (all require an authenticated admin session):
+
+- `GET /api/admin/configs` — list every field with its effective value, override status, and metadata.
+- `POST /api/admin/configs` — save (or clear) an override; hot-reloadable fields apply immediately.
+- `DELETE /api/admin/configs` — revert an override back to its container environment value.
+
+Fields are grouped by behavior:
+
+- **Hot reload (apply immediately):** `UPSTREAM_BASE_URL`, `TRUST_PROXY_HEADERS`, `PROXY_RATE_LIMIT_PER_MINUTE`, `LOGIN_RATE_LIMIT_PER_MINUTE`.
+- **Restart required:** all other manageable fields (OAuth, CORS, session, TTL, etc.) take effect on the next container start.
+- **Bootstrap only (cannot be overridden):** `ADMIN_TOKEN_ENCRYPTION_KEY`, `MONGODB_URI`, `MONGODB_DATABASE` must be set via container environment variables.
+
 Run the frontend:
 
 ```powershell

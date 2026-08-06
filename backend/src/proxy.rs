@@ -1,7 +1,9 @@
+use std::net::SocketAddr;
+
 use axum::{
     Router,
     body::Bytes,
-    extract::{OriginalUri, State},
+    extract::{ConnectInfo, OriginalUri, State},
     http::{HeaderMap, HeaderName, Method, StatusCode, header},
     response::{IntoResponse, Response},
     routing::any,
@@ -10,7 +12,7 @@ use mongodb::bson::{DateTime as BsonDateTime, doc, oid::ObjectId};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::{error::ApiError, models::CdkUsageLog, state::AppState};
+use crate::{crypto, error::ApiError, models::CdkUsageLog, state::AppState};
 
 const BODY_SUMMARY_LIMIT: usize = 4_000;
 
@@ -22,12 +24,13 @@ pub fn router() -> Router<AppState> {
 
 async fn proxy_api(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     OriginalUri(uri): OriginalUri,
     method: Method,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    match proxy_api_inner(state, uri, method, headers, body).await {
+    match proxy_api_inner(state, addr, uri, method, headers, body).await {
         Ok(response) => response,
         Err(error) => error.into_response(),
     }
@@ -35,14 +38,26 @@ async fn proxy_api(
 
 async fn proxy_api_inner(
     state: AppState,
+    addr: SocketAddr,
     uri: axum::http::Uri,
     method: Method,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, ApiError> {
+    let client_ip = client_ip(&headers, Some(addr), state.trust_proxy_headers());
+    let rate_key = card_key_from_body(&body)
+        .filter(|key| !key.is_empty())
+        .map(|key| format!("cdk:{key}"))
+        .unwrap_or_else(|| format!("ip:{}", client_ip.as_deref().unwrap_or("unknown")));
+
+    let rate_status = state.proxy_limiter.check(&rate_key);
+    if !rate_status.allowed {
+        return Err(ApiError::rate_limited(rate_status.retry_after_secs));
+    }
+
     let upstream_url = format!(
         "{}{}",
-        state.upstream_base_url.trim_end_matches('/'),
+        state.upstream_base_url().trim_end_matches('/'),
         uri.path_and_query()
             .map(|value| value.as_str())
             .unwrap_or("/api")
@@ -50,7 +65,7 @@ async fn proxy_api_inner(
 
     let upstream_method = reqwest::Method::from_bytes(method.as_str().as_bytes())
         .map_err(|error| ApiError::bad_request(format!("请求方法不支持: {error}")))?;
-    let rewrite = rewrite_card_key(&state, &uri, &method, &headers, body).await?;
+    let rewrite = rewrite_card_key(&state, addr, &uri, &method, &headers, body).await?;
     let outbound_body = rewrite.body;
     let mut request = state.http.request(upstream_method, upstream_url);
 
@@ -83,7 +98,8 @@ async fn proxy_api_inner(
                 .await;
             }
 
-            return Err(ApiError::upstream(format!("上游请求失败: {error}")));
+            tracing::error!("上游请求失败: {error}");
+            return Err(ApiError::upstream("上游请求失败"));
         }
     };
 
@@ -97,6 +113,7 @@ async fn proxy_api_inner(
 
 async fn rewrite_card_key(
     state: &AppState,
+    addr: SocketAddr,
     uri: &axum::http::Uri,
     method: &Method,
     headers: &HeaderMap,
@@ -143,6 +160,13 @@ async fn rewrite_card_key(
         .and_then(Value::as_str)
         .map(ToOwned::to_owned);
     let account_count = account_count(&value);
+    let client_ip = client_ip(headers, Some(addr), state.trust_proxy_headers());
+    let forwarded_for = if state.trust_proxy_headers() {
+        header_string(headers, "x-forwarded-for").or_else(|| header_string(headers, "forwarded"))
+    } else {
+        None
+    };
+    let request_query = uri.query().map(redact_query);
     let mapping = state
         .mappings
         .find_one(
@@ -152,7 +176,10 @@ async fn rewrite_card_key(
         .await?;
 
     let audit = if let Some(mapping) = mapping {
-        value["card_key"] = json!(mapping.upstream_cdk);
+        let upstream_cdk =
+            crypto::decrypt_value(state.oauth.token_encryption_secret(), &mapping.upstream_cdk)
+                .map_err(|_| ApiError::upstream("上游 CDK 解密失败"))?;
+        value["card_key"] = json!(upstream_cdk);
         Some(PendingUsageAudit {
             request_id: Uuid::new_v4().simple().to_string(),
             distribution_cdk: Some(card_key.clone()),
@@ -162,10 +189,9 @@ async fn rewrite_card_key(
             matched_mapping: true,
             request_method: method.as_str().to_string(),
             request_path: uri.path().to_string(),
-            request_query: uri.query().map(ToOwned::to_owned),
-            client_ip: client_ip(headers),
-            forwarded_for: header_string(headers, "x-forwarded-for")
-                .or_else(|| header_string(headers, "forwarded")),
+            request_query: request_query.clone(),
+            client_ip: client_ip.clone(),
+            forwarded_for: forwarded_for.clone(),
             user_agent: header_string(headers, "user-agent"),
             referer: header_string(headers, "referer"),
             origin: header_string(headers, "origin"),
@@ -188,10 +214,9 @@ async fn rewrite_card_key(
             matched_mapping: false,
             request_method: method.as_str().to_string(),
             request_path: uri.path().to_string(),
-            request_query: uri.query().map(ToOwned::to_owned),
-            client_ip: client_ip(headers),
-            forwarded_for: header_string(headers, "x-forwarded-for")
-                .or_else(|| header_string(headers, "forwarded")),
+            request_query,
+            client_ip,
+            forwarded_for,
             user_agent: header_string(headers, "user-agent"),
             referer: header_string(headers, "referer"),
             origin: header_string(headers, "origin"),
@@ -244,7 +269,9 @@ async fn write_usage_log(state: &AppState, audit: PendingUsageAudit, response: U
         created_at_date: Some(audit.created_at_date),
     };
 
-    let _ = state.usage_logs.insert_one(log, None).await;
+    if let Err(error) = state.usage_logs.insert_one(log, None).await {
+        tracing::warn!("写入 CDK 使用日志失败: {error}");
+    }
 }
 
 struct RewriteResult {
@@ -293,7 +320,15 @@ fn header_string(headers: &HeaderMap, name: &'static str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn client_ip(headers: &HeaderMap) -> Option<String> {
+fn client_ip(
+    headers: &HeaderMap,
+    addr: Option<SocketAddr>,
+    trust_proxy_headers: bool,
+) -> Option<String> {
+    if !trust_proxy_headers {
+        return addr.map(|address| address.ip().to_string());
+    }
+
     header_string(headers, "cf-connecting-ip")
         .or_else(|| header_string(headers, "x-real-ip"))
         .or_else(|| {
@@ -306,6 +341,16 @@ fn client_ip(headers: &HeaderMap) -> Option<String> {
                     .map(ToOwned::to_owned)
             })
         })
+        .or_else(|| addr.map(|address| address.ip().to_string()))
+}
+
+fn card_key_from_body(body: &Bytes) -> Option<String> {
+    let value = serde_json::from_slice::<Value>(body).ok()?;
+    value
+        .get("card_key")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .map(ToOwned::to_owned)
 }
 
 fn account_count(value: &Value) -> Option<i64> {
@@ -358,9 +403,27 @@ fn redact_value(value: &Value) -> Value {
             }
             Value::Object(redacted)
         }
-        Value::Array(items) => Value::Array(items.iter().map(redact_value).collect()),
+        Value::Array(items) => json!(format!("<redacted array, {} items>", items.len())),
         _ => value.clone(),
     }
+}
+
+fn redact_query(query: &str) -> String {
+    query
+        .split('&')
+        .map(|pair| {
+            let name = pair.split('=').next().unwrap_or(pair);
+            let lower = name.to_ascii_lowercase();
+            let sensitive = is_sensitive_key(&lower)
+                || matches!(lower.as_str(), "card_key" | "token" | "key" | "code");
+            if sensitive {
+                "<redacted>".to_string()
+            } else {
+                pair.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("&")
 }
 
 fn is_sensitive_key(key: &str) -> bool {
@@ -415,10 +478,10 @@ async fn upstream_response(
         }
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|error| ApiError::upstream(format!("读取上游响应失败: {error}")))?;
+    let bytes = response.bytes().await.map_err(|error| {
+        tracing::error!("读取上游响应失败: {error}");
+        ApiError::upstream("上游请求失败")
+    })?;
     let audit = UsageResponseAudit {
         status: Some(status.as_u16() as i32),
         body_bytes: Some(bytes.len() as i64),
@@ -521,4 +584,45 @@ fn is_forwarded_response_header(name: &HeaderName) -> bool {
             | "last-modified"
             | "vary"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{is_sensitive_key, redact_query, redact_value};
+
+    #[test]
+    fn redacts_array_values_as_placeholder() {
+        let redacted = redact_value(&json!([{ "account": "user1" }, { "account": "user2" }]));
+        assert_eq!(redacted, json!("<redacted array, 2 items>"));
+    }
+
+    #[test]
+    fn redacts_sensitive_object_keys_but_keeps_safe_scalars() {
+        let redacted = redact_value(&json!({ "account": "user1", "note": "hello" }));
+        assert_eq!(redacted, json!({ "account": "<redacted>", "note": "hello" }));
+    }
+
+    #[test]
+    fn redacts_sensitive_query_pairs() {
+        assert_eq!(
+            redact_query("card_key=abc123&note=hi&code=xyz"),
+            "<redacted>&note=hi&<redacted>"
+        );
+    }
+
+    #[test]
+    fn keeps_safe_query_pairs() {
+        assert_eq!(redact_query("limit=10&page=2"), "limit=10&page=2");
+    }
+
+    #[test]
+    fn recognizes_sensitive_keys() {
+        assert!(is_sensitive_key("account"));
+        assert!(is_sensitive_key("password"));
+        assert!(is_sensitive_key("token"));
+        assert!(is_sensitive_key("card_key"));
+        assert!(!is_sensitive_key("note"));
+    }
 }

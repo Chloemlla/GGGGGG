@@ -1,4 +1,7 @@
-use std::env;
+use std::{
+    env,
+    sync::{Arc, RwLock},
+};
 
 use axum::{
     Router,
@@ -14,15 +17,19 @@ use tower_http::{
 
 mod admin;
 mod config;
+mod config_admin;
+mod crypto;
 mod error;
+mod middleware;
 mod models;
 mod oauth;
 mod proxy;
+mod rate_limit;
 mod state;
 
 use config::AppConfig;
-use models::{AdminSession, CdkMapping, CdkUsageLog};
-use state::AppState;
+use models::{AdminSession, AppConfigEntry, CdkMapping, CdkUsageLog};
+use state::{AppState, RuntimeConfig};
 
 #[tokio::main]
 async fn main() {
@@ -32,7 +39,13 @@ async fn main() {
         )
         .init();
 
-    let config = AppConfig::from_env();
+    let mut config = AppConfig::from_env();
+    let env_defaults = Arc::new(config.clone());
+    if config.oauth.enabled() && config.oauth.token_encryption_key.is_empty() {
+        tracing::warn!(
+            "未设置 ADMIN_TOKEN_ENCRYPTION_KEY，token 加密回退使用 OAuth client_secret，轮换 client_secret 会导致已存会话全部失效"
+        );
+    }
     let mongo = MongoClient::with_uri_str(&config.mongo_uri)
         .await
         .expect("connect MongoDB");
@@ -45,6 +58,22 @@ async fn main() {
     let usage_logs = mongo
         .database(&config.mongo_database)
         .collection::<CdkUsageLog>("cdk_usage_logs");
+    let configs = mongo
+        .database(&config.mongo_database)
+        .collection::<AppConfigEntry>("app_configs");
+
+    config_admin::ensure_index(&configs)
+        .await
+        .expect("create app_configs index");
+    let overrides = config_admin::load_overrides(
+        &configs,
+        config.oauth.token_encryption_secret(),
+    )
+    .await
+    .expect("load config overrides");
+    if !overrides.is_empty() {
+        config.apply_overrides(&overrides);
+    }
 
     admin::ensure_indexes(
         &mappings,
@@ -57,11 +86,27 @@ async fn main() {
 
     let state = AppState {
         admin_sessions,
-        http: HttpClient::new(),
+        configs,
+        env_defaults,
+        http: HttpClient::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("build HTTP client"),
+        login_limiter: std::sync::Arc::new(rate_limit::FixedWindow::new(
+            config.login_rate_limit_per_minute,
+            60,
+        )),
         mappings,
         oauth: config.oauth.clone(),
+        proxy_limiter: std::sync::Arc::new(rate_limit::FixedWindow::new(
+            config.proxy_rate_limit_per_minute,
+            60,
+        )),
+        runtime: Arc::new(RwLock::new(RuntimeConfig {
+            upstream_base_url: config.upstream_base_url.clone(),
+            trust_proxy_headers: config.trust_proxy_headers,
+        })),
         usage_logs,
-        upstream_base_url: config.upstream_base_url.clone(),
     };
 
     let frontend_dir = config.frontend_dir.clone();
@@ -70,9 +115,18 @@ async fn main() {
         ServeDir::new(&frontend_dir).not_found_service(ServeFile::new(frontend_index));
 
     let app = Router::new()
-        .nest("/api/admin", oauth::router().merge(admin::router()))
+        .nest(
+            "/api/admin",
+            oauth::router()
+                .merge(admin::router())
+                .merge(config_admin::router()),
+        )
         .merge(proxy::router())
         .fallback_service(frontend_assets)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::security_headers,
+        ))
         .layer(TraceLayer::new_for_http());
     let app = if config.cors_allowed_origins.is_empty() {
         app
@@ -110,7 +164,12 @@ async fn main() {
         .local_addr()
         .unwrap_or_else(|error| panic!("read bound API address: {error}"));
     println!("pixel-api listening on http://{addr}");
-    axum::serve(listener, app).await.expect("run API server");
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .expect("run API server");
 }
 
 fn cors_layer(allowed_origins: &[String]) -> CorsLayer {

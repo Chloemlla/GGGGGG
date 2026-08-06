@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    http::StatusCode,
+    http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
@@ -14,6 +14,7 @@ struct ErrorResponse {
 pub struct ApiError {
     status: StatusCode,
     detail: String,
+    retry_after: Option<u64>,
 }
 
 impl ApiError {
@@ -21,6 +22,7 @@ impl ApiError {
         Self {
             status: StatusCode::BAD_REQUEST,
             detail: detail.into(),
+            retry_after: None,
         }
     }
 
@@ -28,6 +30,7 @@ impl ApiError {
         Self {
             status: StatusCode::CONFLICT,
             detail: detail.into(),
+            retry_after: None,
         }
     }
 
@@ -35,6 +38,7 @@ impl ApiError {
         Self {
             status: StatusCode::FORBIDDEN,
             detail: detail.into(),
+            retry_after: None,
         }
     }
 
@@ -42,6 +46,15 @@ impl ApiError {
         Self {
             status: StatusCode::NOT_FOUND,
             detail: detail.into(),
+            retry_after: None,
+        }
+    }
+
+    pub fn rate_limited(retry_after_secs: u64) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            detail: "请求过于频繁，请稍后再试".to_string(),
+            retry_after: Some(retry_after_secs),
         }
     }
 
@@ -49,6 +62,7 @@ impl ApiError {
         Self {
             status: StatusCode::SERVICE_UNAVAILABLE,
             detail: detail.into(),
+            retry_after: None,
         }
     }
 
@@ -56,6 +70,7 @@ impl ApiError {
         Self {
             status: StatusCode::UNAUTHORIZED,
             detail: detail.into(),
+            retry_after: None,
         }
     }
 
@@ -63,6 +78,7 @@ impl ApiError {
         Self {
             status: StatusCode::BAD_GATEWAY,
             detail: detail.into(),
+            retry_after: None,
         }
     }
 
@@ -77,22 +93,30 @@ impl ApiError {
 
 impl From<mongodb::error::Error> for ApiError {
     fn from(error: mongodb::error::Error) -> Self {
+        tracing::error!("数据库操作失败: {error}");
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
-            detail: format!("MongoDB error: {error}"),
+            detail: "数据库操作失败".to_string(),
+            retry_after: None,
         }
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (
+        let mut response = (
             self.status,
             Json(ErrorResponse {
                 detail: self.detail,
             }),
         )
-            .into_response()
+            .into_response();
+        if let Some(retry_after) = self.retry_after
+            && let Ok(value) = HeaderValue::from_str(&retry_after.to_string())
+        {
+            response.headers_mut().insert(header::RETRY_AFTER, value);
+        }
+        response
     }
 }
 

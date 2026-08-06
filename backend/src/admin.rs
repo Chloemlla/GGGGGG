@@ -15,6 +15,7 @@ use mongodb::{
 use uuid::Uuid;
 
 use crate::{
+    crypto,
     error::{ApiError, ApiResult},
     models::{
         AdminSession, CdkListResponse, CdkMapping, CdkMappingResponse, CdkUsageListResponse,
@@ -91,7 +92,7 @@ async fn list_cdks(
     let mut items = Vec::new();
 
     while let Some(mapping) = cursor.try_next().await? {
-        items.push(mapping_response(mapping));
+        items.push(mapping_response(&state, mapping));
     }
 
     items.sort_by(|left, right| right.created_at.cmp(&left.created_at));
@@ -110,13 +111,17 @@ async fn create_cdk(
         return Err(ApiError::bad_request("上游 CDK 不能为空"));
     }
 
-    let distribution_cdk = payload
-        .distribution_cdk
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(generate_distribution_cdk);
+    let distribution_cdk = match payload.distribution_cdk.as_deref().map(str::trim) {
+        Some(value) if !value.is_empty() => {
+            if value.chars().count() < 12 {
+                return Err(ApiError::bad_request(
+                    "分发 CDK 长度至少 12 位，建议留空自动生成",
+                ));
+            }
+            value.to_string()
+        }
+        _ => generate_distribution_cdk(),
+    };
 
     let existing = state
         .mappings
@@ -127,11 +132,13 @@ async fn create_cdk(
         return Err(ApiError::conflict("分发 CDK 已存在"));
     }
 
+    let upstream_cdk_encrypted =
+        crypto::encrypt_value(state.oauth.token_encryption_secret(), &upstream_cdk)?;
     let now = timestamp();
     let mapping = CdkMapping {
         id: None,
         distribution_cdk,
-        upstream_cdk,
+        upstream_cdk: upstream_cdk_encrypted,
         note: payload
             .note
             .map(|value| value.trim().to_string())
@@ -152,7 +159,7 @@ async fn create_cdk(
         .await?
         .ok_or_else(|| ApiError::not_found("创建后未找到 CDK 映射"))?;
 
-    Ok(Json(mapping_response(created)))
+    Ok(Json(mapping_response(&state, created)))
 }
 
 async fn delete_cdk(
@@ -228,11 +235,20 @@ async fn get_cdk_usage(
     Ok(Json(usage_log_response(log)))
 }
 
-fn mapping_response(mapping: CdkMapping) -> CdkMappingResponse {
+fn mapping_response(state: &AppState, mapping: CdkMapping) -> CdkMappingResponse {
+    let upstream_cdk_masked =
+        match crypto::decrypt_value(state.oauth.token_encryption_secret(), &mapping.upstream_cdk) {
+            Ok(value) => mask_cdk(&value),
+            Err(error) => {
+                tracing::warn!("解密上游 CDK 失败: {error:?}");
+                mask_cdk(&mapping.upstream_cdk)
+            }
+        };
+
     CdkMappingResponse {
         id: mapping.id.map(|id| id.to_hex()).unwrap_or_default(),
         distribution_cdk: mapping.distribution_cdk,
-        upstream_cdk_masked: mask_cdk(&mapping.upstream_cdk),
+        upstream_cdk_masked,
         note: mapping.note,
         enabled: mapping.enabled,
         created_at: mapping.created_at,

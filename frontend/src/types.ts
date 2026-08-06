@@ -141,3 +141,18 @@ export interface AdminAuthStatus {
   message?: string | null;
   user?: SynapseAdminUser | null;
 }
+
+export type AdminConfigKind = 'text' | 'bool' | 'count';
+
+export interface AdminConfigField {
+  key: string;
+  label: string;
+  group: string;
+  kind: AdminConfigKind;
+  secret: boolean;
+  bootstrap: boolean;
+  hot_reload: boolean;
+  effective: string;
+  overridden: boolean;
+  updated_at?: string | null;
+}

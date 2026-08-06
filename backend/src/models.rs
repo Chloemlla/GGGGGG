@@ -116,6 +116,52 @@ pub struct MessageResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppConfigEntry {
+    #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
+    pub id: Option<ObjectId>,
+    pub key: String,
+    pub value_encrypted: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ConfigFieldResponse {
+    pub key: String,
+    pub label: String,
+    pub group: String,
+    pub kind: String,
+    pub secret: bool,
+    pub bootstrap: bool,
+    pub hot_reload: bool,
+    pub effective: String,
+    pub overridden: bool,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ConfigListResponse {
+    pub items: Vec<ConfigFieldResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveConfigRequest {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteConfigRequest {
+    pub key: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ConfigMutationResponse {
+    pub message: String,
+    pub applied: bool,
+    pub restart_required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdminSession {
     #[serde(rename = "_id")]
     pub id: String,

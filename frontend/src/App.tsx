@@ -8,6 +8,8 @@ import {
 } from "react";
 import {
   Check,
+  ChevronDown,
+  ChevronRight,
   Copy,
   Database,
   Download,
@@ -20,8 +22,10 @@ import {
   Monitor,
   Plus,
   RefreshCcw,
+  Save,
   Search,
   Send,
+  Settings as SettingsIcon,
   Shield,
   Trash2,
   UserCheck,
@@ -32,9 +36,11 @@ import {
   cancelQueuedAccount,
   createAdminCdk,
   deleteAdminCdk,
+  deleteAdminConfig,
   exportTasksByCard,
   getAdminAuthStatus,
   getAdminCdkUsage,
+  getAdminConfigs,
   getSettings,
   getTask,
   getTasksByCard,
@@ -42,6 +48,7 @@ import {
   listAdminCdkUsage,
   listAdminCdks,
   logoutAdmin,
+  saveAdminConfig,
   submitTask,
   verifyCard,
 } from "./api";
@@ -49,6 +56,7 @@ import type {
   AccountStatus,
   AdminAuthStatus,
   AdminCdkMapping,
+  AdminConfigField,
   AlertType,
   CardInfo,
   CdkUsageLog,
@@ -1483,6 +1491,8 @@ function AdminPage() {
             )}
           </section>
 
+          <AdminConfigSection onAuthError={handleProtectedError} />
+
           {activeUsageLog ? (
             <CdkUsageDetailModal
               log={activeUsageLog}
@@ -1493,6 +1503,277 @@ function AdminPage() {
         </>
       )}
     </section>
+  );
+}
+
+function AdminConfigSection({
+  onAuthError,
+}: {
+  onAuthError: (error: unknown) => void;
+}) {
+  const [fields, setFields] = useState<AdminConfigField[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [savingKey, setSavingKey] = useState("");
+  const [alert, setAlert] = useState({ type: "" as AlertType, msg: "" });
+
+  const overriddenCount = useMemo(
+    () => fields.filter((field) => field.overridden).length,
+    [fields],
+  );
+
+  const groups = useMemo(() => {
+    const order: string[] = [];
+    const grouped = new Map<string, AdminConfigField[]>();
+    for (const field of fields) {
+      const list = grouped.get(field.group) ?? [];
+      list.push(field);
+      if (!order.includes(field.group)) {
+        order.push(field.group);
+      }
+      grouped.set(field.group, list);
+    }
+    return order.map((group) => ({ group, items: grouped.get(group) ?? [] }));
+  }, [fields]);
+
+  async function loadConfigs() {
+    setLoading(true);
+    try {
+      const response = await getAdminConfigs();
+      setFields(response.items);
+      setAlert({ type: "", msg: "" });
+    } catch (error) {
+      if (isAuthError(error)) {
+        onAuthError(error);
+        return;
+      }
+      setAlert({ type: "error", msg: getErrorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadConfigs();
+  }, []);
+
+  async function handleSave(field: AdminConfigField) {
+    const value = (drafts[field.key] ?? "").trim();
+    if (!value) {
+      setAlert({ type: "error", msg: `请输入 ${field.label} 的新值` });
+      return;
+    }
+
+    setSavingKey(field.key);
+    setAlert({ type: "", msg: "" });
+    try {
+      const response = await saveAdminConfig(field.key, value);
+      setAlert({ type: "success", msg: response.message });
+      setDrafts((current) => ({ ...current, [field.key]: "" }));
+      await loadConfigs();
+    } catch (error) {
+      if (isAuthError(error)) {
+        onAuthError(error);
+        return;
+      }
+      setAlert({ type: "error", msg: getErrorMessage(error) });
+    } finally {
+      setSavingKey("");
+    }
+  }
+
+  async function handleDelete(field: AdminConfigField) {
+    if (
+      !window.confirm(
+        `确认恢复 ${field.label}（${field.key}）为容器默认值？`,
+      )
+    ) {
+      return;
+    }
+
+    setSavingKey(field.key);
+    setAlert({ type: "", msg: "" });
+    try {
+      const response = await deleteAdminConfig(field.key);
+      setAlert({ type: "success", msg: response.message });
+      await loadConfigs();
+    } catch (error) {
+      if (isAuthError(error)) {
+        onAuthError(error);
+        return;
+      }
+      setAlert({ type: "error", msg: getErrorMessage(error) });
+    } finally {
+      setSavingKey("");
+    }
+  }
+
+  return (
+    <section className="glass-panel config-section">
+      <div className="panel-toolbar">
+        <PanelTitle
+          icon={<SettingsIcon size={18} />}
+          title="运行配置"
+          description="覆盖持久化到 MongoDB app_configs，可覆盖容器环境变量。"
+        />
+        <div className="config-actions">
+          {overriddenCount > 0 ? (
+            <span className="config-section-summary">
+              {overriddenCount} 项已覆盖
+            </span>
+          ) : null}
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => setOpen((current) => !current)}
+          >
+            {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            {open ? "收起" : "展开"}
+          </button>
+          <button
+            className="btn btn-secondary btn-sm"
+            disabled={loading}
+            onClick={loadConfigs}
+          >
+            <RefreshCcw size={14} />
+            {loading ? "刷新中..." : "刷新"}
+          </button>
+        </div>
+      </div>
+
+      {alert.msg ? <Alert type={alert.type}>{alert.msg}</Alert> : null}
+
+      {open ? (
+        <>
+          <Alert type="info">
+            修改会写入 MongoDB 的 app_configs 集合。标为「立即生效」的配置会热更新；
+            标为「重启生效」的配置在保存后需要重启容器才生效。敏感值只会显示脱敏后的当前值，
+            不会回显原文。
+          </Alert>
+          {loading && !fields.length ? (
+            <div className="empty-state">运行配置加载中...</div>
+          ) : groups.length ? (
+            groups.map((group) => (
+              <div className="config-group" key={group.group}>
+                <h3 className="config-group-title">{group.group}</h3>
+                <div className="config-fields">
+                  {group.items.map((field) => (
+                    <ConfigFieldRow
+                      key={field.key}
+                      field={field}
+                      draft={drafts[field.key] ?? ""}
+                      saving={savingKey === field.key}
+                      onDraftChange={(value) =>
+                        setDrafts((current) => ({
+                          ...current,
+                          [field.key]: value,
+                        }))
+                      }
+                      onSave={() => handleSave(field)}
+                      onDelete={() => handleDelete(field)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="empty-state">暂无运行配置</div>
+          )}
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+function ConfigFieldRow({
+  field,
+  draft,
+  saving,
+  onDraftChange,
+  onSave,
+  onDelete,
+}: {
+  field: AdminConfigField;
+  draft: string;
+  saving: boolean;
+  onDraftChange: (value: string) => void;
+  onSave: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="config-field-row">
+      <div className="config-field-head">
+        <div className="config-field-label">
+          <strong>{field.label}</strong>
+          <code>{field.key}</code>
+        </div>
+        <div className="config-field-badges">
+          {field.hot_reload ? (
+            <span className="status-badge status-running">立即生效</span>
+          ) : (
+            <span className="status-badge">重启生效</span>
+          )}
+          {field.bootstrap ? (
+            <span className="status-badge">环境变量</span>
+          ) : field.overridden ? (
+            <span className="status-badge status-success">已覆盖</span>
+          ) : (
+            <span className="status-badge">默认</span>
+          )}
+        </div>
+      </div>
+
+      <div className="config-field-value">
+        {field.bootstrap ? (
+          <span className="config-value config-value-muted">
+            {field.effective || "未设置"}（只能通过容器环境变量设置）
+          </span>
+        ) : (
+          <code className="config-value mono">{field.effective}</code>
+        )}
+      </div>
+
+      {field.bootstrap ? null : (
+        <div className="config-field-actions">
+          {field.kind === "bool" ? (
+            <select
+              value={draft}
+              onChange={(event) => onDraftChange(event.target.value)}
+            >
+              <option value="">选择值...</option>
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+          ) : (
+            <input
+              type={field.kind === "count" ? "number" : "text"}
+              min={field.kind === "count" ? 1 : undefined}
+              value={draft}
+              onChange={(event) => onDraftChange(event.target.value)}
+              placeholder={`输入新值，当前：${field.effective}`}
+            />
+          )}
+          <button
+            className="btn btn-secondary btn-sm"
+            disabled={saving || !draft.trim()}
+            onClick={onSave}
+          >
+            <Save size={14} />
+            {saving ? "保存中..." : "保存"}
+          </button>
+          {field.overridden ? (
+            <button
+              className="btn btn-danger btn-sm"
+              disabled={saving}
+              onClick={onDelete}
+            >
+              <Trash2 size={14} />
+              恢复默认
+            </button>
+          ) : null}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1703,7 +1984,9 @@ function TaskDetailModal({
                   </tr>
                 </thead>
                 <tbody>
-                  {detail.accounts.map((account) => (
+                  {detail.accounts.map((account) => {
+                    const href = safeExternalUrl(account.result_link);
+                    return (
                     <tr key={account.id}>
                       <td>{account.line_number}</td>
                       <td>{account.email}</td>
@@ -1720,14 +2003,16 @@ function TaskDetailModal({
                       </td>
                       <td>{account.message || "-"}</td>
                       <td>
-                        {account.result_link ? (
+                        {href ? (
                           <a
-                            href={account.result_link}
+                            href={href}
                             target="_blank"
                             rel="noopener noreferrer"
                           >
                             {account.result_link}
                           </a>
+                        ) : account.result_link ? (
+                          <span>{account.result_link}</span>
                         ) : (
                           "-"
                         )}
@@ -1749,7 +2034,8 @@ function TaskDetailModal({
                         )}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             ) : (
@@ -1974,6 +2260,11 @@ function formatTimestamp(value: string) {
     return new Date(numeric * 1000).toLocaleString();
   }
   return value;
+}
+
+function safeExternalUrl(value: string | undefined | null): string | null {
+  if (!value) return null;
+  return /^https?:\/\/[^\s"']+$/i.test(value.trim()) ? value : null;
 }
 
 function synapseRoleLabel(user?: SynapseAdminUser | null) {

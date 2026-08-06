@@ -933,6 +933,122 @@ td a {
   line-height: 1.55;
 }
 
+.config-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.config-section-summary {
+  color: var(--slate-500);
+  font-size: 0.8125rem;
+}
+
+.config-group {
+  margin-top: 1.25rem;
+}
+
+.config-group-title {
+  margin: 0 0 0.625rem;
+  color: var(--slate-500);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.config-fields {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.config-field-row {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid var(--slate-200);
+  border-radius: 20px;
+  background: rgba(248, 250, 252, 0.78);
+  padding: 0.875rem;
+}
+
+.config-field-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.config-field-label {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.config-field-label strong {
+  color: var(--slate-900);
+  font-size: 0.875rem;
+}
+
+.config-field-label code {
+  color: var(--slate-400);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.config-field-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.config-value {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.config-value-muted {
+  color: var(--slate-500);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.config-field-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+}
+
+.config-field-actions input,
+.config-field-actions select {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.config-field-actions select {
+  min-height: 44px;
+  border: 1px solid var(--slate-200);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.84);
+  color: var(--slate-900);
+  outline: none;
+  padding: 0 0.875rem;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.config-field-actions select:focus {
+  border-color: var(--indigo-500);
+  background: white;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.12);
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -1518,6 +1634,18 @@ td a {
     max-height: 220px;
     padding: 0.875rem;
     font-size: 0.75rem;
+  }
+
+  .config-field-actions {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .config-field-actions input,
+  .config-field-actions select,
+  .config-field-actions .btn {
+    width: 100%;
   }
 }
 

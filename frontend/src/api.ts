@@ -1,6 +1,7 @@
 import type {
   AdminCdkMapping,
   AdminAuthStatus,
+  AdminConfigField,
   CdkUsageLog,
   ExportAccount,
   ServiceType,
@@ -165,5 +166,31 @@ export function getAdminAuthStatus() {
 export function logoutAdmin() {
   return request<{ message: string }>('/api/admin/auth/logout', {
     method: 'POST'
+  });
+}
+
+export function getAdminConfigs() {
+  return request<{ items: AdminConfigField[] }>('/api/admin/configs');
+}
+
+export function saveAdminConfig(key: string, value: string) {
+  return request<{
+    message: string;
+    applied: boolean;
+    restart_required: boolean;
+  }>('/api/admin/configs', {
+    method: 'POST',
+    body: JSON.stringify({ key, value })
+  });
+}
+
+export function deleteAdminConfig(key: string) {
+  return request<{
+    message: string;
+    applied: boolean;
+    restart_required: boolean;
+  }>('/api/admin/configs', {
+    method: 'DELETE',
+    body: JSON.stringify({ key })
   });
 }
